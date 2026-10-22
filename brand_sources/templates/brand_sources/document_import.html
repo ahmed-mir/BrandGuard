@@ -6,6 +6,14 @@
 </section>
 
 <section class="document-import-layout" aria-label="Document import requirements and form">
+  {% if document_import_disabled_reason %}
+  <section class="source-form document-import-form" aria-labelledby="document-import-unavailable">
+    <p class="eyebrow"><span class="eyebrow__line"></span>PRIVATE STORAGE REQUIRED</p>
+    <h2 id="document-import-unavailable">Document imports are unavailable</h2>
+    <p role="status">{{ document_import_disabled_reason }}</p>
+    <p><a class="button button--primary" href="{% url 'app:brand_sources:create' %}">Create a source from text</a></p>
+  </section>
+  {% else %}
   <form method="post" enctype="multipart/form-data" class="source-form document-import-form" novalidate>
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
@@ -24,5 +32,6 @@
     <p class="eyebrow"><span class="eyebrow__line"></span>AFTER EXTRACTION</p>
     <ol><li><strong>Review</strong><span>Correct the editable source text if extraction needs cleanup.</span></li><li><strong>Confirm</strong><span>Explicitly confirm the saved text is suitable as an authoritative source.</span></li><li><strong>Structure</strong><span>Add rules and facts with exact evidence from this version.</span></li><li><strong>Publish</strong><span>Approve through the existing source workflow. Import never approves automatically.</span></li></ol>
   </aside>
+  {% endif %}
 </section>
 {% endblock %}

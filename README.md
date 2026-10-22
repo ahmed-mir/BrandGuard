@@ -4,11 +4,12 @@ BrandGuard is a source-backed review and approval system for marketing content. 
 
 ## Requirements
 
-- Python 3.12 or newer.
+- Python 3.14.6 is pinned for Render in `.python-version`; the existing local development environment is also Python 3.14.6. Check the selected interpreter with `python --version` rather than assuming the local and hosted runtimes match.
 - Django 6.1.x (constrained in `requirements.txt`).
-- SQLite by default. PostgreSQL is supported through `DATABASE_URL` and the included psycopg driver.
+- SQLite by default for local development. Production/Render requires PostgreSQL through `DATABASE_URL` and the included psycopg 3 driver; missing or SQLite production URLs fail startup.
 - `python-docx` and `pypdf` for bounded DOCX/PDF text extraction.
 - `reportlab` for in-memory, paginated PDF review reports.
+- Gunicorn for production WSGI, WhiteNoise for static files, and `django-storages[s3]` for optional private S3-compatible brand-document storage.
 
 ## Windows PowerShell setup
 
@@ -107,19 +108,21 @@ The import accepts UTF-8/UTF-8 BOM TXT, DOCX and text PDFs up to 5 MiB; PDFs are
 
 Extracted text is saved as an ordinary editable draft. A manager/admin must inspect it, save corrections, then submit the separate confirmation action. The approval service verifies that the confirmed SHA-256 matches the current source text, then runs the existing evidence validation and atomic policy publication. Import never creates rules/facts automatically and never approves a source by itself.
 
-Original files are stored with generated names in a `private_documents` storage alias. Local development defaults to `private_uploads/` outside `MEDIA_URL`, static serving and public download routes; it is ignored by Git. There is no file download endpoint. The default local filesystem backend is private only from application URL routing; deployment operators must configure access controls, encryption, backups and retention for the chosen storage. For a private object storage backend, set `PRIVATE_DOCUMENT_STORAGE_BACKEND` to the installed backend import path and `PRIVATE_DOCUMENT_STORAGE_OPTIONS` to its JSON options. The backend must implement Django Storage APIs. Do not configure a public bucket or expose this location as public media.
+Original files use generated names in the `private_documents` storage alias. Local development defaults to `private_uploads/` outside `MEDIA_URL`, static serving and public download routes; it is ignored by Git. There is no file download endpoint. Production document imports are disabled unless a private S3-compatible bucket and region are configured; an absent/unsupported setup fails closed and the import page offers manual source entry. When configured, Django Storages uses a private/default-private object setup and signed URLs remain enabled, but uploads have no public download route. Operators must separately verify bucket public-access blocks, provider credentials, encryption, backup and retention policies. The production bucket name, region and optional HTTPS endpoint use `PRIVATE_DOCUMENT_BUCKET`, `PRIVATE_DOCUMENT_REGION`, and `PRIVATE_DOCUMENT_ENDPOINT_URL`; local filesystem paths remain development-only. Do not configure public media for these objects.
 
 Limits can be lowered with `BRAND_DOCUMENT_MAX_UPLOAD_BYTES`, `BRAND_DOCUMENT_MAX_PDF_PAGES` and `BRAND_DOCUMENT_MAX_EXTRACTED_CHARS`; settings reject values above 5 MiB, 10 pages and 80,000 characters respectively. Set `PRIVATE_DOCUMENT_ROOT` to choose the local private file location. None of these values contain secrets. `.env.example` documents the variable names but is not loaded automatically.
 
 ## Configuration and PostgreSQL
 
-SQLite is used when `DATABASE_URL` is unset. PostgreSQL can be selected with an environment URL; create the database and account separately:
+SQLite is used when `DATABASE_URL` is unset in local development. Production requires a PostgreSQL URL; missing URLs and SQLite URLs fail configuration rather than falling back. PostgreSQL can be selected with an environment URL; create the database and account separately:
 
 ```powershell
 $env:DATABASE_URL = 'postgresql://brandguard@localhost:5432/brandguard'
 ```
 
 Replace these example connection components in your local environment, and keep credentials out of version control. `DB_SSLMODE` can set the PostgreSQL TLS mode. See `.env.example` for the setting names.
+
+Render uses its PostgreSQL internal URL when the web service and database share a region. Production requires TLS (`sslmode=require` unless a stricter supported mode is supplied), sets a 5-second connection timeout and keeps connections for 60 seconds with health checks. `config/settings.py` trusts `X-Forwarded-Proto: https` only when Render sets its documented `RENDER=true` environment flag; `DJANGO_ENV=production` by itself does not trust forwarded headers. Render's public edge handles HTTP-to-HTTPS redirection; app-level SSL redirects remain off so its health probe works. HSTS stays at zero by default until the final HTTPS hostname is verified.
 
 ## Checks and tests
 
@@ -131,6 +134,14 @@ python manage.py test
 ```
 
 The test suite covers Phase 0 landing/health routes, Phase 1A authentication and membership security, Phase 1B profile/password/navigation/member safeguards, Phase 2A source/rule/fact CRUD, exact evidence, role/workspace isolation, atomic publication, immutability, supersession, revision/hash snapshots and idempotent demo data, Phase 2B synthetic TXT/DOCX/PDF extraction, provenance, limits, permissions, confirmation and policy integration, Phase 3A immutable content/review records and all supported deterministic checks, and Phase 3B append-only revisions, stale-edit checks, comparison, fresh review submission, inbox permissions, reviewer decisions, high-severity overrides and current-approval invalidation. `python manage.py collectstatic --noinput` can be used to verify/build deployment static assets; generated `staticfiles/` output is ignored.
+
+## Render deployment preparation
+
+Phase 4B-1 adds a pinned Render Python runtime, Gunicorn/WhiteNoise configuration, fail-closed production PostgreSQL settings, secure proxy/cookie/host configuration, a `build.sh` that installs, collects static files and migrates, and a public `/health/` check. The Render Dashboard setup, required variables, PowerShell smoke tests, storage limitations, and manual workflow are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). No GitHub push or live deployment has been performed.
+
+Brand-source document imports are intentionally disabled in production until a persistent private S3-compatible bucket, region and credentials are configured. The rest of the app—including existing source text, deterministic reviews, approvals and guarded TXT/PDF exports—does not depend on that bucket. Local imports continue using ignored `private_uploads/` storage.
+
+`seed_demo` remains local-only (DEBUG + SQLite). The separate `bootstrap_demo` management command requires a PostgreSQL production environment, role-specific password environment variables, `BRANDGUARD_ALLOW_PRODUCTION_DEMO_BOOTSTRAP=YES`, and `--confirm-production-demo-bootstrap`. It does not run during builds, never prints or resets passwords, refuses conflicting non-demo data, and was not executed against production. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#explicit-production-demo-bootstrap).
 
 ## Architecture and limits
 

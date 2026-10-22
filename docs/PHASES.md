@@ -165,12 +165,27 @@ Every route is GET-only and repeats authentication, active membership, workspace
 - PDF uses ReportLab's bundled Vera font for English and supported Latin characters. It fails clearly rather than silently dropping unsupported glyphs; use the UTF-8 TXT export for copy containing unsupported characters.
 - SQLite ignores `SELECT FOR UPDATE`; local tests validate behavior, not concurrent multi-writer production guarantees. Configure and concurrency-test PostgreSQL before production use.
 - There is no export event log, cryptographic signature, timestamp authority or tamper-proof approval certificate. The PDF is a generated report, not proof of authenticity.
-- Operational hardening, production deployment, monitoring, backup/retention, and broader deployment security remain not started.
+- Production configuration preparation is tracked in Phase 4B-1. Live deployment, monitoring, backup/restore, retention operations, and PostgreSQL/object-storage integration verification remain for Phase 4B-2.
 
 ### Boundary
 
 Phases 0 through 4A provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission, deterministic evidence-backed checks, immutable content revisions, human approval, and current-approval-protected TXT/PDF exports. Phase 4A does not add campaign document uploads, AI, OCR, image/poster analysis, automatic suggestion application, tamper-proof audit events, notifications, external publishing or deployment operations. See `docs/EXPORTS.md`, `docs/APPROVAL_WORKFLOW.md` and `docs/REVIEW_ENGINE.md` for detailed behavior and limitations.
 
-## Phase 4 — operational hardening (not started)
+## Phase 4B-1 — production readiness and Render preparation (implemented locally; not deployed)
 
-Production deployment operations, monitoring, recovery, retention policies and production-specific hardening remain future work.
+- Pinned the Render native Python runtime to 3.14.6 in `.python-version`. The inspected local environment was Python 3.14.6 with Django 6.1.2; the hosted runtime remains independently selected by Render.
+- Added Gunicorn WSGI, WhiteNoise static assets and optional `django-storages[s3]`/boto3 dependencies. `bash ./build.sh` installs requirements, runs manifest-backed `collectstatic`, and applies migrations without seeding demo records. The documented Gunicorn start command binds to Render's `PORT` with two synchronous workers.
+- Added production mode using `DJANGO_ENV=production` or Render's `RENDER=true`: strong secret required, DEBUG forced off/rejected if enabled, exact allowed hosts and HTTPS CSRF origins required, PostgreSQL URL required, SQLite fallback rejected, PostgreSQL TLS required, five-second connection timeout, 60-second connection reuse and connection health checks. Session and CSRF cookies are secure/HttpOnly; Render's documented `X-Forwarded-Proto` is trusted only when Render itself sets `RENDER=true`, not merely because `DJANGO_ENV=production` is set. Render's HTTPS edge performs the public redirect; application-level SSL redirect remains off to preserve health probes. HSTS is configurable but defaults to zero until a domain is verified.
+- Production static storage uses `whitenoise.storage.CompressedManifestStaticFilesStorage`; WhiteNoise middleware follows Django `SecurityMiddleware`. `/health/` remains anonymous and exposes only `{"status":"ok"}`.
+- Local private filesystem storage remains available in development. In production, missing or unsupported S3-compatible private storage switches the private-document storage alias to a fail-closed backend and disables the upload form with a clear manual-text alternative. S3-compatible configuration requires a bucket, region, and optional HTTPS endpoint; bucket privacy, IAM policy, credentials, encryption and backups still require operator configuration and verification.
+- Added explicit `bootstrap_demo` for a trusted operator. It is PostgreSQL-only; both a dedicated command-line confirmation and `BRANDGUARD_ALLOW_PRODUCTION_DEMO_BOOTSTRAP=YES` are required. It creates only the synthetic demo workspace, creator/manager/reviewer users (new passwords supplied through distinct role-specific environment variables), memberships and missing LumaDesk policy sources. It never runs on ordinary deploy, creates no admin, does not reset passwords, prints no password, and refuses conflicts. It has not been run against a production database.
+- Added production configuration tests for missing secrets/database URL, PostgreSQL-only production, host/origin validation, secure cookies, database timeout/reuse/TLS, WhiteNoise settings, disabled private upload behavior and bootstrap opt-ins. Existing business apps and migrations are preserved.
+- Added `docs/DEPLOYMENT.md` for manual GitHub/Render setup, exact build/start/health configuration, environment variables, safe migrations/bootstrap, workflow smoke tests, storage controls, current free-tier limits and troubleshooting.
+
+### Phase 4B-1 verification boundary
+
+No Render service, GitHub repository, cloud database, S3 bucket, custom domain or production credentials were created or changed. A local TCP listener was present on port 5432, but connection authentication failed because no password/isolated test database was configured. PostgreSQL migrations, row-lock concurrency and transactional approvals therefore remain untested against PostgreSQL; the local suite uses SQLite and is not described as PostgreSQL coverage. The S3 storage settings/backend can be configured without credentials for local tests, but no provider connectivity/private bucket policy was verified. No production demo bootstrap was executed. See `docs/DEPLOYMENT.md` for Phase 4B-2 tasks and limitations.
+
+## Phase 4B-2 — live Render deployment (not started)
+
+Operator-led GitHub push, Render PostgreSQL and web-service creation, secret entry, first deployment, private storage decision, authorized demo bootstrap, live workflow verification, backups/monitoring, and custom domain work remain deferred. This phase does not claim that BrandGuard is live.

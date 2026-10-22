@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
@@ -129,6 +130,15 @@ def source_create(request):
 @workspace_role_required(*MANAGER_ROLES)
 def document_import(request):
     form = BrandDocumentImportForm(request.POST or None, request.FILES or None)
+    if not settings.PRIVATE_DOCUMENT_IMPORTS_ENABLED:
+        return render(request, "brand_sources/document_import.html", _context(
+            request,
+            "Import a brand document",
+            extra={
+                "form": form,
+                "document_import_disabled_reason": settings.PRIVATE_DOCUMENT_IMPORTS_DISABLED_REASON,
+            },
+        ))
     if request.method == "POST" and form.is_valid():
         try:
             source, version, document_import_record = import_source_document(

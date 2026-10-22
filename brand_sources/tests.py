@@ -510,6 +510,21 @@ class BrandDocumentImportWorkflowTests(TestCase):
             upload=upload or self._upload(),
         )
 
+    @override_settings(
+        PRIVATE_DOCUMENT_IMPORTS_ENABLED=False,
+        PRIVATE_DOCUMENT_IMPORTS_DISABLED_REASON=(
+            "Private document imports are unavailable because persistent private object storage is not configured."
+        ),
+    )
+    def test_production_storage_unavailability_is_explained_and_upload_control_is_hidden(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse("app:brand_sources:import"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Document imports are unavailable")
+        self.assertContains(response, "persistent private object storage is not configured")
+        self.assertContains(response, reverse("app:brand_sources:create"))
+        self.assertNotContains(response, 'type="file"')
+
     def test_txt_import_creates_a_real_draft_and_private_provenance(self):
         raw = b"\xef\xbb\xbf" + self.source_text.encode("utf-8")
         source, version, record = self._import(upload=self._upload("..\\brand-guide.txt", raw, "text/plain"))
