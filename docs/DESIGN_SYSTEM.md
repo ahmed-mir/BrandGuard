@@ -46,11 +46,22 @@ CSS custom properties are defined in core/static/core/css/site.css under :root a
 - The application shell is shared by overview, account settings and workspace members. Its desktop sidebar stays compact; at widths up to 800px it becomes an accessible slide-in navigation drawer. A no-JavaScript fallback keeps navigation visible. New routes supply a named active section rather than inventing links.
 - The mobile navigation toggle is a real button with `aria-expanded` and `aria-controls`. When open, focus moves into the drawer, is trapped while modal, returns to the trigger on Escape/close, and the main area is inert. The scrim and close control are keyboard-operable. Honor `prefers-reduced-motion` by removing drawer movement.
 - Authentication and account settings use the same canvas, ink and teal tokens. Keep form labels persistent, errors adjacent, connected with `aria-describedby` and announced. Success feedback uses a restrained semantic status region. Password fields must never render bound password values.
-- Workspace identity shows only database-backed membership/workspace details and role-specific guidance. Review activity is explicitly unavailable because there is no review model yet. Do not add dashboard metrics, notifications or status summaries without database-backed behavior.
+- Workspace identity shows only database-backed membership/workspace details and role-specific guidance. Since Phase 3A, Content reviews is a real route backed by persisted submissions and review runs. Keep the overview free of invented counts, analytics, notifications or compliance summaries; any future summaries must query real records and describe their scope accurately.
 - Future navigation entries may appear only as noninteractive labels with an explicit unavailable state, and only for the roles they concern. Use links only for named routes that already exist.
 - The members screen uses a semantic list of real current-workspace membership records; role and active status are text as well as color. Keep the desktop row grid compact and stack identity/access details on mobile.
 - Workspace admins see current workspace configuration metadata and a read-only member route. Avoid implying that settings, invitations, member changes, email changes or role edits are available.
 - Transition duration is short and reduced motion is respected. Loading animation has a static reduced-motion fallback.
+
+## Content review workspace (Phase 3A)
+
+- The review list is an actual submission list. Creators see their own records; workspace reviewers, brand managers and admins see records in their current workspace. A new-submission action appears only for creators and points to a real route.
+- The submission editor is plain text and intentionally does not look like a rich-text or file-upload editor. It explains that saving creates an immutable version and that campaign-document upload is not supported.
+- Version detail shows the actual saved content, channel, hash, creator and review runs. Each run starts through a CSRF-protected POST with a per-form idempotency token. Repeated submission with the same token must not create duplicate review records.
+- The results page prioritizes findings and source evidence. Use visible text for severity and check status; do not rely on color alone. Findings display saved rule identity, category, severity, exact matched text and validated character offsets. Missing-phrase findings explicitly state that a content location is unavailable.
+- Evidence expands using native accessible `<details>`/`<summary>` and identifies the exact source title/version, rule identifier and excerpt. Link to the actual pinned source version. Render both content and evidence with Django template escaping; do not inject content as HTML.
+- A policy-change notice describes the old pinned snapshot. The status must distinguish complete, partial and failed runs. The interface may say that no violations were found only for completed checks, and must disclose human-review flags and the narrow deterministic scope. It must never show a compliance score or imply universal factual verification.
+- Tone analysis is explicitly labeled as not performed. No invented AI assessment, progress animation, score or claim is permitted.
+- Phase 3A uses `.review-*` and `.review-state*` components in `site.css`, continuing the shared canvas, ink, teal, subtle borders and spacing tokens. Severity and outcome states use existing semantic feedback colors with text labels. At mobile widths, content and findings stack in one column and long identifiers/evidence wrap without page-level horizontal overflow.
 
 ## Preview policy
 

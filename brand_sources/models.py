@@ -25,8 +25,14 @@ def validate_matcher_data(value):
     rule_type = value.get("type")
     schemas = {
         "PROHIBITED_TERM": ({"type", "term", "preferred", "case_sensitive", "scope"}, {"type", "term"}),
-        "REQUIRED_TERM": ({"type", "term", "case_sensitive", "scope"}, {"type", "term"}),
-        "REQUIRED_DISCLAIMER": ({"type", "phrase", "scope"}, {"type", "phrase", "scope"}),
+        "REQUIRED_TERM": (
+            {"type", "term", "case_sensitive", "scope", "trigger_phrase"},
+            {"type", "term"},
+        ),
+        "REQUIRED_DISCLAIMER": (
+            {"type", "phrase", "scope", "trigger_phrase"},
+            {"type", "phrase", "scope"},
+        ),
         "APPROVED_FACT": ({"type", "fact_identifier"}, {"type", "fact_identifier"}),
     }
     if rule_type not in schemas:
@@ -38,7 +44,7 @@ def validate_matcher_data(value):
         raise ValidationError("Matcher configuration contains unsupported fields.")
     if missing:
         raise ValidationError("Matcher configuration is missing required fields.")
-    text_keys = {"term", "preferred", "phrase", "fact_identifier", "scope"}
+    text_keys = {"term", "preferred", "phrase", "trigger_phrase", "fact_identifier", "scope"}
     for key in text_keys & set(value):
         item = value[key]
         if not isinstance(item, str) or len(item) > 200 or (key in required and not item.strip()):

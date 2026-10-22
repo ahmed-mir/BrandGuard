@@ -8,20 +8,16 @@ from .permissions import workspace_member_required, workspace_role_required
 
 ROLE_DESCRIPTIONS = {
     WorkspaceMembership.Role.CREATOR: (
-        "Use this workspace to submit campaign content and work through evidence-backed "
-        "feedback when content review becomes available."
+        "Submit campaign text, check it against approved brand rules, and inspect the exact source evidence behind deterministic findings."
     ),
     WorkspaceMembership.Role.BRAND_MANAGER: (
-        "Maintain approved guidelines, terminology and product facts with evidence that future "
-        "content reviews can cite. Content review itself is not available yet."
+        "Maintain approved, evidence-backed guidelines and inspect workspace submissions and their pinned policy review history."
     ),
     WorkspaceMembership.Role.REVIEWER: (
-        "Review submitted versions and record human decisions when review tools become "
-        "available."
+        "Inspect submitted content and its deterministic, source-backed review results. Content approval decisions are not part of this phase."
     ),
     WorkspaceMembership.Role.ADMIN: (
-        "Oversee workspace access and configuration. You can inspect current memberships; "
-        "membership changes are not available yet."
+        "Oversee workspace access and inspect workspace submissions and their source-backed policy review history."
     ),
 }
 

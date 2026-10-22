@@ -69,6 +69,35 @@ LUMADESK_SOURCE_PACK = (
         ),
     },
     {
+        "slug": "lumadesk-pilot-disclosure-trigger",
+        "title": "Pilot claim disclaimer trigger",
+        "source_type": BrandSource.SourceType.POLICY,
+        "description": "Synthetic applicability condition for claims about the internal pilot.",
+        "text": (
+            'When a marketing claim mentions the "internal pilot", include the exact qualification '
+            '"Results vary." alongside the claim.'
+        ),
+        "rules": (
+            {
+                "identifier": "DISC-002",
+                "category": BrandRule.Category.DISCLAIMER,
+                "severity": BrandRule.Severity.HIGH,
+                "description": "Add the approved qualification to claims that mention the internal pilot.",
+                "rule_type": BrandRule.RuleType.REQUIRED_DISCLAIMER,
+                "matcher_data": {
+                    "type": "REQUIRED_DISCLAIMER",
+                    "phrase": "Results vary.",
+                    "scope": "ALL",
+                    "trigger_phrase": "internal pilot",
+                },
+                "evidence_excerpt": (
+                    'When a marketing claim mentions the "internal pilot", include the exact qualification '
+                    '"Results vary." alongside the claim.'
+                ),
+            },
+        ),
+    },
+    {
         "slug": "lumadesk-product-facts",
         "title": "Product fact sheet",
         "source_type": BrandSource.SourceType.FACT_SHEET,

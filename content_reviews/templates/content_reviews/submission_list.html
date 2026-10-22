@@ -1,0 +1,18 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<section class="review-list-intro"><div><p class="eyebrow"><span class="eyebrow__line"></span>SUBMISSIONS &amp; EVIDENCE</p><p>Review actual copy against the approved policy in this workspace. Findings are deterministic and link to the source version used.</p></div>{% if can_submit_content %}<a class="button button--primary" href="{% url 'app:content_reviews:create' %}">New submission <span aria-hidden="true">→</span></a>{% endif %}</section>
+
+{% if submissions %}
+<div class="review-submission-list" aria-label="Content submissions">
+  {% for submission in submissions %}
+  <article class="review-submission-row">
+    <div class="review-submission-row__main"><p class="mono">{{ submission.get_channel_display }} · v{{ submission.current_version.version_number|default:"—" }}</p><h2><a href="{% url 'app:content_reviews:detail' submission.id %}">{{ submission.title }}</a></h2><p>{% if submission.audience %}{{ submission.audience }}{% else %}No audience specified{% endif %}{% if membership.role != "CREATOR" %} · {{ submission.creator.get_full_name|default:submission.creator.username }}{% endif %}</p></div>
+    <div class="review-submission-row__status">{% if submission.current_version %}{% with latest_review=submission.current_version.review_runs.first %}{% if latest_review %}<span class="review-state review-state--{{ latest_review.status|lower }}">{{ latest_review.get_status_display }}</span><small>Reviewed {{ latest_review.started_at|date:"M j, Y · H:i T" }}</small>{% else %}<span class="review-state review-state--saved">Saved · not reviewed</span>{% endif %}{% endwith %}{% else %}<span class="review-state review-state--failed">No content version</span>{% endif %}</div>
+    <a class="review-submission-row__open" href="{% url 'app:content_reviews:detail' submission.id %}">Open <span aria-hidden="true">→</span></a>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<section class="review-empty-state" aria-labelledby="reviews-empty-title"><p class="eyebrow"><span class="eyebrow__line"></span>NO SUBMISSIONS</p><h2 id="reviews-empty-title">Your review workspace starts with real copy.</h2>{% if can_submit_content %}<p>Paste the text you plan to publish. BrandGuard will check it against the approved rules and keep each result tied to the exact policy snapshot used.</p><a class="button button--primary" href="{% url 'app:content_reviews:create' %}">Create a submission <span aria-hidden="true">→</span></a>{% else %}<p>Submissions created in this workspace will appear here with their actual review history.</p>{% endif %}</section>
+{% endif %}
+{% endblock %}

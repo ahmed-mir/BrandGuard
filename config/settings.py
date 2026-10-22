@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "accounts.apps.AccountsConfig",
     "workspaces.apps.WorkspacesConfig",
     "brand_sources.apps.BrandSourcesConfig",
+    "content_reviews.apps.ContentReviewsConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

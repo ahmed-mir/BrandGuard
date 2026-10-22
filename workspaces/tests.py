@@ -50,8 +50,8 @@ class WorkspaceAccessTests(TestCase):
         self.assertContains(response, "Creator")
         self.assertNotContains(response, "Compliance score")
         self.assertNotContains(response, "Recent submissions")
-        self.assertContains(response, "Review activity is not available yet")
-        self.assertContains(response, "does not yet store review activity")
+        self.assertContains(response, "Create a content submission")
+        self.assertNotContains(response, "Compliance score")
 
     def test_each_membership_role_is_rendered_from_database(self):
         role_labels = {
@@ -209,19 +209,19 @@ class WorkspaceExperienceTests(TestCase):
     def test_role_specific_overview_copy_and_navigation(self):
         expected = {
             WorkspaceMembership.Role.CREATOR: (
-                "submit campaign content",
-                ["Content reviews"],
+                "Submit campaign text",
+                [],
             ),
             WorkspaceMembership.Role.BRAND_MANAGER: (
-                "approved guidelines, terminology and product facts",
+                "approved, evidence-backed guidelines",
                 [],
             ),
             WorkspaceMembership.Role.REVIEWER: (
-                "record human decisions",
-                ["Content reviews", "Approval inbox"],
+                "Inspect submitted content",
+                ["Approval inbox"],
             ),
             WorkspaceMembership.Role.ADMIN: (
-                "inspect current memberships",
+                "Oversee workspace access",
                 [],
             ),
         }
@@ -239,6 +239,7 @@ class WorkspaceExperienceTests(TestCase):
                 self.assertEqual(parser.unavailable_text.split(), expected_unavailable)
                 expected_links = {reverse("app:home"), reverse("app:profile")}
                 expected_links.add(reverse("app:brand_sources:list"))
+                expected_links.add(reverse("app:content_reviews:list"))
                 if role == WorkspaceMembership.Role.ADMIN:
                     expected_links.add(reverse("app:members"))
                 self.assertEqual(set(parser.paths), expected_links)
@@ -252,12 +253,17 @@ class WorkspaceExperienceTests(TestCase):
         parser.feed(response.content.decode())
         self.assertEqual(
             set(parser.paths),
-            {reverse("app:home"), reverse("app:profile"), reverse("app:brand_sources:list")},
+            {
+                reverse("app:home"),
+                reverse("app:profile"),
+                reverse("app:brand_sources:list"),
+                reverse("app:content_reviews:list"),
+            },
         )
         for path in parser.paths:
             self.assertIsNotNone(resolve(path))
-        self.assertContains(response, 'aria-disabled="true"')
-        self.assertNotContains(response, '<a href="/app/reviews/')
+        self.assertContains(response, '<a href="/app/reviews/">')
+        self.assertNotContains(response, '<a href="/app/approval-inbox/')
 
     def test_admin_can_view_only_current_workspace_member_records(self):
         admin = self.create_member("workspace_admin", WorkspaceMembership.Role.ADMIN)

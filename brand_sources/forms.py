@@ -74,6 +74,12 @@ class SourceVersionForm(forms.ModelForm):
 
 class BrandRuleForm(forms.ModelForm):
     term = forms.CharField(max_length=200, required=False, label="Term or required phrase")
+    trigger_phrase = forms.CharField(
+        max_length=200,
+        required=False,
+        label="Content applicability trigger (optional)",
+        help_text="For required terms or disclaimers, enter a phrase that must appear before the absence can be reported. Leave blank when this matcher does not need a trigger.",
+    )
     preferred_term = forms.CharField(max_length=200, required=False, label="Preferred wording", help_text="Optional replacement for a prohibited term.")
     case_sensitive = forms.BooleanField(required=False, initial=False, label="Match capitalization exactly")
     scope = forms.ChoiceField(
@@ -112,6 +118,7 @@ class BrandRuleForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             config = self.instance.matcher_data
             self.fields["term"].initial = config.get("term") or config.get("phrase", "")
+            self.fields["trigger_phrase"].initial = config.get("trigger_phrase", "")
             self.fields["preferred_term"].initial = config.get("preferred", "")
             self.fields["case_sensitive"].initial = config.get("case_sensitive", False)
             self.fields["scope"].initial = config.get("scope", "ALL")
@@ -126,12 +133,18 @@ class BrandRuleForm(forms.ModelForm):
             if not term:
                 self.add_error("term", "Enter the exact term this rule checks.")
             config.update(term=term, case_sensitive=cleaned.get("case_sensitive", False), scope=scope)
+            trigger_phrase = cleaned.get("trigger_phrase", "").strip()
+            if rule_type == BrandRule.RuleType.REQUIRED_TERM and trigger_phrase:
+                config["trigger_phrase"] = trigger_phrase
             if rule_type == BrandRule.RuleType.PROHIBITED_TERM and cleaned.get("preferred_term", "").strip():
                 config["preferred"] = cleaned["preferred_term"].strip()
         elif rule_type == BrandRule.RuleType.REQUIRED_DISCLAIMER:
             if not term:
                 self.add_error("term", "Enter the exact disclaimer text that must appear.")
             config.update(phrase=term, scope=scope)
+            trigger_phrase = cleaned.get("trigger_phrase", "").strip()
+            if trigger_phrase:
+                config["trigger_phrase"] = trigger_phrase
         elif rule_type == BrandRule.RuleType.APPROVED_FACT:
             self.add_error("rule_type", "Add approved facts through the fact form so the statement and evidence stay linked.")
         if rule_type:

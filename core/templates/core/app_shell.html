@@ -33,9 +33,10 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg>
         <span>Brand sources</span>
       </a>
-      {% if membership.role == "CREATOR" or membership.role == "REVIEWER" %}
-        <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg><span>Content reviews</span><small>Unavailable</small></span>
-      {% endif %}
+      <a href="{% url 'app:content_reviews:list' %}"{% if active_navigation == 'reviews' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg>
+        <span>Content reviews</span>
+      </a>
       {% if membership.role == "REVIEWER" %}
         <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span><small>Unavailable</small></span>
       {% endif %}

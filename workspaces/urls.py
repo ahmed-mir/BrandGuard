@@ -13,4 +13,8 @@ urlpatterns = [
         "brand-sources/",
         include(("brand_sources.urls", "brand_sources"), namespace="brand_sources"),
     ),
+    path(
+        "reviews/",
+        include(("content_reviews.urls", "content_reviews"), namespace="content_reviews"),
+    ),
 ]

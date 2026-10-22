@@ -80,22 +80,39 @@ Workspace administration remains read-only. The membership list does not invite,
 
 Import and confirmation are workspace-scoped and protected by the existing server-side manager/admin decorators. Approval permission is still checked server-side; hiding a control is not treated as authorization. Source edits and approvals re-fetch/lock the draft to avoid changing an already approved version.
 
-## Phase 3 — content submission and versioning (not started)
+## Phase 3A — text submission and evidence-backed review (implemented)
 
-Implement creator submissions and immutable content versions so a reviewer can identify precisely what changed.
+- Added the `content_reviews` Django app. A creator can save plain-text content with channel, optional audience and purpose. The first saved `ContentVersion` stores a SHA-256 hash and cannot be edited or deleted; this phase does not add revisions.
+- Added workspace-scoped review history. Creators see and run reviews only for their own submissions. Reviewers, brand managers and workspace admins can inspect submissions in their current workspace. Creation and run actions require creator membership server-side; all detail queries enforce active workspace boundaries.
+- Each review stores the `Workspace.policy_revision`, policy snapshot hash, exact approved source-version identities/content hashes, engine version and immutable run status. A short workspace-row lock captures the source snapshot. The evaluator then uses only those pinned, effective source-version IDs; later publication cannot rewrite old checks or evidence.
+- The deterministic engine uses the existing Phase 2A matcher schema for `PROHIBITED_TERM`, `REQUIRED_TERM`, `REQUIRED_DISCLAIMER` and `APPROVED_FACT`. It stores per-rule `ReviewCheck` outcomes and `ReviewFinding` records only when a real finding is generated. Exact source evidence must still occur in the pinned source text; matched-content offsets are validated against the immutable submitted version.
+- Prohibited phrases use escaped, word-bounded matching and configured case sensitivity. Required terms need a configured channel scope or applicability trigger before absence can become a finding. Required disclaimers run only with their stored trigger. Approved-fact comparisons require a narrow shared metric phrase, explicit matching unit, direction and structured comparison; unsupported claims are `NOT_VERIFIED`, not declared false.
+- Runs are synchronous and bounded to 20,000 characters, 500 policy rules and 250 findings. Per-check failures preserve successful results and produce `PARTIAL` or `FAILED` status. No approved policy blocks review. No tone analysis or AI service is connected; the UI says this explicitly. A complete deterministic run is not a universal fact or compliance guarantee.
+- Added `/app/reviews/`, `/new/`, submission/version detail, POST-only `/run/` and persisted `/runs/<review-id>/` routes. The responsive findings screen shows actual checks, severity labels, validated text offsets, exact pinned evidence and a warning when the current policy has changed.
+- Added a local-only, idempotent `seed_review_scenarios` command. Its six synthetic submissions are passed through the actual engine; no finding records are preloaded. It requires `seed_demo`, DEBUG and SQLite, and skips existing seed-owned submissions/runs.
+- Added tests for all four rule types, scope/trigger behavior, metric/unit boundaries, evidence integrity, policy pinning, immutability, no-policy/failed outcomes, permissions/isolation, idempotent seeding and an unmocked end-to-end creator flow.
 
-## Phase 4 — evidence-backed review (not started)
+### Phase 3A role access
 
-Implement review execution against approved sources. Every finding must retain its supporting source evidence. Do not fabricate results when a review has not run.
+| Role | List submissions | Create content | Run review | View findings |
+|---|---|---|---|---|
+| Creator | Own only | Yes | Own only | Own only |
+| Reviewer | Current workspace | No | No | Current workspace |
+| Brand manager | Current workspace | No | No | Current workspace |
+| Workspace admin | Current workspace | No | No | Current workspace |
 
-## Phase 5 — revision and human approval (not started)
+### Phase 3A limitations
 
-Implement revision tracking and role-authorized approval of an exact content version, with an auditable decision record.
+Only pasted text is supported. There are no later content revisions, creator issue-resolution workflow, reviewer approval/rejection decisions, export, AI judgement, tone assessment, synonyms, semantic brand analysis or universal fact verification. Factual comparison recognizes only the documented structured numeric subset; unrecognized or non-comparable claims remain not verified or need human review. Effective dates are applied as start dates; source policy does not model expiry. This phase does not call external services.
 
-## Phase 6 — export and operational hardening (not started)
+## Phase 3B — creator revision and human review decisions (not started)
 
-Permit export only for the approved version, then add deployment operations, monitoring and production-specific hardening.
+Build new immutable marketing-content versions, revision handling and role-authorized review decisions when this phase is explicitly scheduled. Decision records must refer to the exact content version and preserve prior runs and evidence. Export remains unavailable until approval semantics are implemented.
+
+## Phase 4 — export and operational hardening (not started)
+
+Permit export only for an explicitly approved content version, then add deployment operations, monitoring and production-specific hardening.
 
 ### Boundary
 
-Phases 0 through 2B provide the product introduction, workspace/account foundation, authored policy and verified text extraction. Phase 2B does not include upload replacements to existing sources, authorized source-document downloads, OCR, external AI, image/poster analysis, content submission, review execution, findings, creator revision, content approval decisions, audit-event subsystem, activity data or export. Current routes, storage assumptions and limits are documented in the README.
+Phases 0 through 3A provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission and deterministic evidence-backed checks. Phase 3A does not include campaign document uploads, AI, OCR, image/poster analysis, content revision, review decisions, audit-event subsystem or export. Current routes, storage assumptions, policy snapshot behavior and limitations are documented in the README and `docs/REVIEW_ENGINE.md`.

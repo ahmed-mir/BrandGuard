@@ -32,15 +32,14 @@
       <a class="button button--secondary" href="{% url 'app:members' %}">View workspace members <span aria-hidden="true">→</span></a>
     {% elif membership.role == "BRAND_MANAGER" %}
       <a class="button button--secondary" href="{% url 'app:brand_sources:list' %}">Open brand sources <span aria-hidden="true">→</span></a>
+    {% elif membership.role == "CREATOR" %}
+      <a class="button button--secondary" href="{% url 'app:content_reviews:create' %}">Create a content submission <span aria-hidden="true">→</span></a>
+    {% elif membership.role == "REVIEWER" %}
+      <a class="button button--secondary" href="{% url 'app:content_reviews:list' %}">View workspace reviews <span aria-hidden="true">→</span></a>
     {% else %}
       <a class="button button--secondary" href="{% url 'app:profile' %}">Review account settings <span aria-hidden="true">→</span></a>
     {% endif %}
   </div>
 </section>
 
-<section class="review-empty" aria-labelledby="review-empty-title">
-  <div class="review-empty__index mono" aria-hidden="true">BG / 01</div>
-  <div><p class="eyebrow"><span class="eyebrow__line"></span>CONTENT REVIEWS</p><h2 id="review-empty-title">Review activity is not available yet.</h2><p>Submission, evidence-backed findings and approval records will appear here when those capabilities are implemented. This workspace does not yet store review activity.</p></div>
-  <span class="review-empty__state">NOT AVAILABLE IN THIS PHASE</span>
-</section>
 {% endblock %}
