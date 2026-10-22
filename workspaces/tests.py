@@ -218,7 +218,7 @@ class WorkspaceExperienceTests(TestCase):
             ),
             WorkspaceMembership.Role.REVIEWER: (
                 "Inspect submitted content",
-                ["Approval inbox"],
+                [],
             ),
             WorkspaceMembership.Role.ADMIN: (
                 "Oversee workspace access",
@@ -240,6 +240,8 @@ class WorkspaceExperienceTests(TestCase):
                 expected_links = {reverse("app:home"), reverse("app:profile")}
                 expected_links.add(reverse("app:brand_sources:list"))
                 expected_links.add(reverse("app:content_reviews:list"))
+                if role in {WorkspaceMembership.Role.REVIEWER, WorkspaceMembership.Role.ADMIN}:
+                    expected_links.add(reverse("app:approvals:inbox"))
                 if role == WorkspaceMembership.Role.ADMIN:
                     expected_links.add(reverse("app:members"))
                 self.assertEqual(set(parser.paths), expected_links)

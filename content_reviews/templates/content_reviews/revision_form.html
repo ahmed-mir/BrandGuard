@@ -1,0 +1,12 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="review-backline"><a class="text-link" href="{% url 'app:content_reviews:version_detail' submission.id base_version.version_number %}">← Back to version {{ base_version.version_number }}</a><span class="mono">NEW VERSION · {{ submission.title }}</span></div>
+<section class="review-form-intro"><p class="eyebrow"><span class="eyebrow__line"></span>CONTENT REVISION</p><h2>Create a new version.</h2><p>Version {{ base_version.version_number }} stays unchanged with its original reviews and evidence. Your edits will be saved as a new immutable version and need a fresh review.</p></section>
+<form method="post" class="review-form revision-form" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-errors" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  {% for hidden in form.hidden_fields %}{{ hidden }}{% if hidden.errors %}<div class="form-errors" role="alert">{{ hidden.errors }}</div>{% endif %}{% endfor %}
+  <div class="form-field form-field--content"><label for="{{ form.content_text.id_for_label }}">{{ form.content_text.label }}</label>{{ form.content_text }}{% if form.content_text.help_text %}<small>{{ form.content_text.help_text }}</small>{% endif %}{% if form.content_text.errors %}<div class="form-errors" role="alert">{{ form.content_text.errors }}</div>{% endif %}</div>
+  <div class="review-form__footer"><p>Saving creates version {{ base_version.version_number|add:1 }}. There is no automatic approval or automatic application of suggested wording.</p><button class="button button--primary" type="submit">Save new version <span aria-hidden="true">→</span></button></div>
+</form>
+{% endblock %}

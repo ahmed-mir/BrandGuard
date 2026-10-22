@@ -1,3 +1,6 @@
+from difflib import SequenceMatcher
+import uuid
+
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.http import Http404
@@ -10,9 +13,9 @@ from workspaces.page_context import app_page_context
 from workspaces.permissions import workspace_member_required, workspace_role_required
 from brand_sources.services import policy_snapshot
 
-from .forms import ContentSubmissionForm, StartReviewForm
+from .forms import ContentRevisionForm, ContentSubmissionForm, StartReviewForm, SubmitForApprovalForm
 from .models import ContentSubmission, ContentVersion, ReviewCheck, ReviewFinding, ReviewRun
-from .services import create_submission, execute_review
+from .services import create_revision, create_submission, execute_review
 
 
 CREATOR = WorkspaceMembership.Role.CREATOR
@@ -48,6 +51,12 @@ def _submission(request, submission_id):
 @workspace_member_required
 def submission_list(request):
     submissions = _submissions(request)
+    from approvals.services import submission_workflow_status
+    for submission in submissions:
+        status = submission_workflow_status(submission)
+        submission.workflow_state = status["state"]
+        submission.workflow_label = status["label"]
+        submission.approval_is_stale = status["stale"]
     return render(
         request,
         "content_reviews/submission_list.html",
@@ -99,6 +108,42 @@ def version_detail(request, submission_id, version_number):
     version = get_object_or_404(submission.versions, version_number=version_number)
     review_runs = version.review_runs.select_related("requested_by").all()
     latest_review = review_runs.first()
+    from approvals.services import current_valid_approval
+    current_approval = current_valid_approval(submission)
+    version_rows = []
+    for historical_version in submission.versions.select_related("created_by").prefetch_related("approval_requests__decision").order_by("-version_number"):
+        approval = historical_version.approval_requests.select_related("decision").order_by("-requested_at").first()
+        latest_version_review = historical_version.review_runs.first()
+        history_label = approval.get_status_display() if approval else "Draft"
+        if approval and approval.status == "APPROVED" and historical_version.pk != submission.current_version_id:
+            history_label = "Approved · historical"
+        elif (
+            approval
+            and approval.status == "APPROVED"
+            and current_approval["approval"]
+            and approval.pk == current_approval["approval"].pk
+            and not current_approval["valid"]
+        ):
+            history_label = "Approval no longer current"
+        version_rows.append({
+            "version": historical_version,
+            "approval": approval,
+            "workflow_status": history_label,
+            "review_status": latest_version_review.get_status_display() if latest_version_review else "Not reviewed",
+            "decision": getattr(approval, "decision", None) if approval else None,
+        })
+    creator_view = request.workspace_membership.role == CREATOR
+    approval_history = submission.approval_requests.select_related("content_version", "requested_by").prefetch_related("decision__reviewer").order_by("-requested_at")
+    submit_form = None
+    fresh_review = None
+    if creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk:
+        for candidate in review_runs:
+            snapshot = policy_snapshot(request.workspace)
+            if candidate.status == ReviewRun.Status.COMPLETE and candidate.policy_snapshot == snapshot and candidate.checks.exists():
+                fresh_review = candidate
+                break
+        if fresh_review:
+            submit_form = SubmitForApprovalForm(initial={"review_run_id": fresh_review.pk}, content_version=version)
     return render(
         request,
         "content_reviews/version_detail.html",
@@ -108,8 +153,121 @@ def version_detail(request, submission_id, version_number):
             "review_runs": review_runs,
             "latest_review": latest_review,
             "start_review_form": StartReviewForm(),
+            "version_rows": version_rows,
+            "approval_history": approval_history,
+            "current_approval": current_approval,
+            "submit_form": submit_form,
+            "fresh_review": fresh_review,
+            "can_revise": creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk,
         }),
     )
+
+
+@require_http_methods(["GET", "POST"])
+@workspace_role_required(WorkspaceMembership.Role.CREATOR)
+def revise_submission(request, submission_id):
+    submission = _submission(request, submission_id)
+    if submission.creator_id != request.user.pk or submission.current_version_id is None:
+        raise Http404("This submission is not available for revision.")
+    base = submission.current_version
+    initial = {
+        "content_text": base.content_text,
+        "base_version_id": base.pk,
+        "base_content_hash": base.content_hash,
+        "idempotency_key": uuid.uuid4(),
+    }
+    form = ContentRevisionForm(request.POST or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        try:
+            updated_submission, version, created = create_revision(
+                submission_id=submission.pk,
+                workspace=request.workspace,
+                actor=request.user,
+                base_version_id=form.cleaned_data["base_version_id"],
+                base_content_hash=form.cleaned_data["base_content_hash"],
+                content_text=form.cleaned_data["content_text"],
+                idempotency_key=form.cleaned_data["idempotency_key"],
+            )
+        except ContentSubmission.DoesNotExist as exc:
+            raise Http404("This submission is not available for revision.") from exc
+        except ValidationError as exc:
+            if hasattr(exc, "error_dict"):
+                for field, errors in exc.error_dict.items():
+                    for error in errors:
+                        form.add_error(field if field in form.fields else None, error)
+            else:
+                form.add_error(None, " ".join(exc.messages))
+        else:
+            if created:
+                messages.success(request, f"Saved as new immutable content version {version.version_number}. Run a fresh review before submitting it for approval.")
+            else:
+                messages.info(request, f"This revision was already saved as version {version.version_number}.")
+            return redirect("app:content_reviews:version_detail", submission_id=updated_submission.pk, version_number=version.version_number)
+    return render(request, "content_reviews/revision_form.html", _context(request, f"Revise · {submission.title}", {
+        "submission": submission,
+        "base_version": base,
+        "form": form,
+    }))
+
+
+@require_POST
+@workspace_role_required(WorkspaceMembership.Role.CREATOR)
+def submit_submission(request, submission_id):
+    from approvals.services import submit_for_approval
+
+    submission = _submission(request, submission_id)
+    form = SubmitForApprovalForm(request.POST, content_version=submission.current_version)
+    if not form.is_valid():
+        messages.error(request, "Refresh the current version and choose its latest completed review before submitting.")
+        return redirect("app:content_reviews:version_detail", submission_id=submission.pk, version_number=submission.current_version.version_number)
+    try:
+        approval, created = submit_for_approval(
+            submission_id=submission.pk,
+            workspace=request.workspace,
+            actor=request.user,
+            review_run_id=form.cleaned_data["review_run_id"],
+        )
+    except ContentSubmission.DoesNotExist as exc:
+        raise Http404("This submission is not available.") from exc
+    except ValidationError as exc:
+        messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+        return redirect("app:content_reviews:version_detail", submission_id=submission.pk, version_number=submission.current_version.version_number)
+    messages.success(request, "Submitted for human approval." if created else "This version is already awaiting a decision.")
+    return redirect("app:approvals:detail", request_id=approval.pk)
+
+
+@require_GET
+@workspace_member_required
+def compare_versions(request, submission_id):
+    submission = _submission(request, submission_id)
+    try:
+        old_number = int(request.GET.get("from", ""))
+        new_number = int(request.GET.get("to", ""))
+    except (TypeError, ValueError):
+        raise Http404("Choose two saved content versions to compare.")
+    if old_number == new_number:
+        raise Http404("Choose two different versions to compare.")
+    older = get_object_or_404(submission.versions, version_number=old_number)
+    newer = get_object_or_404(submission.versions, version_number=new_number)
+    rows = []
+    old_lines = older.content_text.splitlines(keepends=True)
+    new_lines = newer.content_text.splitlines(keepends=True)
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_opcodes():
+        if tag == "equal":
+            rows.extend({"kind": "equal", "old": old_lines[i], "new": new_lines[j]} for i, j in zip(range(i1, i2), range(j1, j2)))
+        elif tag == "delete":
+            rows.extend({"kind": "removed", "old": line, "new": ""} for line in old_lines[i1:i2])
+        elif tag == "insert":
+            rows.extend({"kind": "added", "old": "", "new": line} for line in new_lines[j1:j2])
+        else:
+            width = max(i2 - i1, j2 - j1)
+            for offset in range(width):
+                old_line = old_lines[i1 + offset] if i1 + offset < i2 else ""
+                new_line = new_lines[j1 + offset] if j1 + offset < j2 else ""
+                rows.append({"kind": "changed", "old": old_line, "new": new_line})
+    return render(request, "content_reviews/version_compare.html", _context(request, f"Compare versions · {submission.title}", {
+        "submission": submission, "older": older, "newer": newer, "diff_rows": rows,
+    }))
 
 
 @require_GET

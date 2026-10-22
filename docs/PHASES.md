@@ -105,9 +105,36 @@ Import and confirmation are workspace-scoped and protected by the existing serve
 
 Only pasted text is supported. There are no later content revisions, creator issue-resolution workflow, reviewer approval/rejection decisions, export, AI judgement, tone assessment, synonyms, semantic brand analysis or universal fact verification. Factual comparison recognizes only the documented structured numeric subset; unrecognized or non-comparable claims remain not verified or need human review. Effective dates are applied as start dates; source policy does not model expiry. This phase does not call external services.
 
-## Phase 3B — creator revision and human review decisions (not started)
+## Phase 3B — creator revision and human review decisions (implemented)
 
-Build new immutable marketing-content versions, revision handling and role-authorized review decisions when this phase is explicitly scheduled. Decision records must refer to the exact content version and preserve prior runs and evidence. Export remains unavailable until approval semantics are implemented.
+- `ContentVersion` remains immutable. Creator revisions use an explicit base-version ID and content hash, are serialized against the submission where the database supports row locks, have a conditional unique idempotency key, and append a numbered version with a recomputed SHA-256. A stale base or changed content rejects the second session without replacing the first revision. Prior reviews/findings stay attached to their original version.
+- Added a safe `difflib.SequenceMatcher` comparison route using stored text. Django templates escape both versions; the responsive comparison labels additions, removals and unchanged context without rendering submitted markup.
+- Added the `approvals` app. `ApprovalRequest` pins workspace, submission, exact content version/hash, completed `ReviewRun`, policy revision/hash/full snapshot, requester and submission timestamp. One request is allowed for a content version. `ApprovalDecision` is an immutable one-to-one record for that request and stores reviewer, action, decision time, comment/override rationale and the same content/policy identities plus overridden high-finding IDs.
+- Effective submission status is derived from the latest request for the current content version: no request is `DRAFT`, an undecided request is `IN_REVIEW`, a request with a changes decision is `CHANGES_REQUESTED`, and an approved request is `APPROVED` only while the approval remains current. A historical approval whose version or policy is no longer current is displayed as stale; its record is not edited or erased.
+- A creator can submit only their current version, and only with a saved `COMPLETE` review containing completed checks that exactly matches today's policy revision/hash/version identities. Partial/failed/stale runs, other-version runs and duplicate requests are rejected. A policy change requires a fresh review and a new request.
+- Reviewers and workspace admins access `/app/approvals/`. Workspace members can inspect a request if otherwise permitted; creators only see requests for their own submissions. Brand managers may inspect workspace review/request detail but cannot open the inbox or decide. Only reviewer/admin roles can request changes or approve. The content creator cannot review their own submission even if assigned reviewer/admin access.
+- Requesting changes requires a useful comment and records reviewer and time. The immutable decision appears in the creator's version history; another attempt requires a newer content version.
+- Approval rechecks current version/hash, complete exact review, current policy snapshot, workspace and reviewer permission inside a transaction. Unresolved high-severity findings block approval unless the reviewer provides a meaningful reason; the decision records the override and exact finding IDs while the findings remain open.
+- `approvals.services.current_valid_approval(submission)` checks historical approval against the currently pointed content version/hash and current approved policy revision/hash/source identities. It is a reusable service gate for future export; no export route is present.
+- PostgreSQL row locks serialize content/policy decisions. SQLite does not implement `select_for_update`; version/idempotency/request/decision uniqueness constraints prevent replacement/duplicate records, and lock contention returns a safe retry message. SQLite is not represented as a multi-writer production concurrency guarantee.
+- Added responsive revision, version comparison, creator decision-history, actual reviewer inbox and exact-version reviewer decision screens. All mutation forms use POST + CSRF and findings remain linked to original evidence.
+
+### Phase 3B permissions
+
+| Role | Revise own content | Submit own reviewed version | Inspect workspace requests | Inbox | Request changes / approve |
+|---|---:|---:|---:|---:|---:|
+| Creator | Yes | Yes | Own requests only | No | No |
+| Reviewer | No | No | Yes | Yes | Yes, except own authored content |
+| Brand manager | No | No | Yes | No | No |
+| Workspace admin | No | No | Yes | Yes | Yes, except own authored content |
+
+### Phase 3B limitations
+
+- Suggested corrections remain copyable text; automatically applying a finding span is deferred because a safe span replacement must account for stale offsets and user confirmation.
+- Approval decisions are application records, not tamper-proof or externally notarized audit events. Email/in-app notification delivery is not integrated.
+- High-severity findings currently remain `OPEN` because finding resolution is not part of this phase. The reviewer may record a reasoned approval override, which does not dismiss a finding.
+- SQLite is suitable for local demonstration but does not provide PostgreSQL-equivalent row-lock concurrency. PostgreSQL needs production configuration/verification before deployment.
+- There is no marketing-content export. Any future export must call `current_valid_approval()` and reject stale or missing approvals.
 
 ## Phase 4 — export and operational hardening (not started)
 
@@ -115,4 +142,4 @@ Permit export only for an explicitly approved content version, then add deployme
 
 ### Boundary
 
-Phases 0 through 3A provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission and deterministic evidence-backed checks. Phase 3A does not include campaign document uploads, AI, OCR, image/poster analysis, content revision, review decisions, audit-event subsystem or export. Current routes, storage assumptions, policy snapshot behavior and limitations are documented in the README and `docs/REVIEW_ENGINE.md`.
+Phases 0 through 3B provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission, deterministic evidence-backed checks, immutable content revisions, and version-/policy-bound human review decisions. Phase 3B does not include campaign document uploads, AI, OCR, image/poster analysis, automatic suggestion application, tamper-proof audit events, notification delivery or export. Routes, approval semantics, storage assumptions, policy snapshot behavior and limitations are documented in the README, `docs/REVIEW_ENGINE.md` and `docs/APPROVAL_WORKFLOW.md`.

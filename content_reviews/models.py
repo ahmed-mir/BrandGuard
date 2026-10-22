@@ -62,6 +62,10 @@ class ContentVersion(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_content_versions"
     )
+    revision_of = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="revision_versions"
+    )
+    revision_idempotency_key = models.UUIDField(null=True, blank=True)
     is_demo = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -69,6 +73,11 @@ class ContentVersion(models.Model):
         ordering = ["-version_number"]
         constraints = [
             models.UniqueConstraint(fields=["submission", "version_number"], name="cv_submission_version_uniq"),
+            models.UniqueConstraint(
+                fields=["submission", "revision_idempotency_key"],
+                condition=Q(revision_idempotency_key__isnull=False),
+                name="cv_submission_revision_key_uniq",
+            ),
         ]
         indexes = [models.Index(fields=["submission", "version_number"], name="cv_submission_ver_idx")]
 
@@ -80,6 +89,11 @@ class ContentVersion(models.Model):
             raise ValidationError({"content_text": "Content text cannot be empty."})
         if self.submission_id and self.created_by_id and self.submission.creator_id != self.created_by_id:
             raise ValidationError({"created_by": "A content version must be created by its submission's creator."})
+        if self.revision_of_id:
+            if self.revision_of.submission_id != self.submission_id:
+                raise ValidationError({"revision_of": "A revision must belong to the same submission."})
+            if self.revision_of.version_number >= self.version_number:
+                raise ValidationError({"revision_of": "A revision must reference an earlier content version."})
 
     def save(self, *args, **kwargs):
         self.content_hash = hashlib.sha256(self.content_text.encode("utf-8")).hexdigest()

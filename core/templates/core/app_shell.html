@@ -38,9 +38,14 @@
         <span>Content reviews</span>
       </a>
       {% if membership.role == "REVIEWER" %}
-        <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span><small>Unavailable</small></span>
+        <a href="{% url 'app:approvals:inbox' %}"{% if active_navigation == 'approvals' %} aria-current="page"{% endif %}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span>
+        </a>
       {% endif %}
       {% if membership.role == "ADMIN" %}
+        <a href="{% url 'app:approvals:inbox' %}"{% if active_navigation == 'approvals' %} aria-current="page"{% endif %}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span>
+        </a>
         <a href="{% url 'app:members' %}"{% if active_navigation == 'members' %} aria-current="page"{% endif %}>
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="7" r="3"/><path d="M2 17c.5-3 2.2-4.5 5-4.5s4.5 1.5 5 4.5M13 4.5a3 3 0 0 1 0 5.5m1 2c2.2.3 3.5 1.6 4 4"/></svg>
           <span>Workspace members</span>

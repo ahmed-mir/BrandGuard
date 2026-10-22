@@ -5,7 +5,7 @@ BrandGuard Phase 3A accepts plain-text marketing content and performs bounded de
 ## Stored records
 
 - `ContentSubmission` identifies the workspace, creator, title, channel, optional audience and campaign purpose. It points at the current saved content version and is retained as review history.
-- `ContentVersion` stores the complete submitted text, a SHA-256 content hash, creator, version number and timestamp. Saving a version is immutable; this phase creates the first version only. Future edits must add a new version.
+- `ContentVersion` stores the complete submitted text, a SHA-256 content hash, creator, version number and timestamp. Saving a version is immutable. Phase 3B revisions append another version; the evaluated text and findings are never overwritten.
 - `ReviewRun` stores the requested actor, status and timestamps, engine version, policy revision/hash, a JSON copy of the Phase 2A snapshot, a unique request token, safe failure information and incomplete/not-implemented check metadata. Terminal runs cannot be changed or deleted through model methods.
 - `ReviewPolicyVersion` stores each approved `SourceVersion` identity and its content hash from the snapshot. Future-effective source versions are kept in the snapshot with `applied=False` and a reason; rules from them are not evaluated.
 - `ReviewCheck` stores one outcome per saved rule. Outcomes include no violation, finding, supported, contradicted, not verified, not applicable, needs human review, not completed and failed.
@@ -55,11 +55,17 @@ Each persisted finding is also validated by the model: check, rule, run and sour
 
 Submission and review endpoints resolve workspace and role from the active server-side `WorkspaceMembership`. Creators can create/run and see only their own submissions. Reviewers, brand managers and admins can inspect the current workspace. Only creators can access create/run endpoints; role-based hiding is not the protection. Cross-workspace or another creator's submission IDs are scoped out. All mutations use POST and the standard Django CSRF middleware. User copy and source evidence are rendered with normal template escaping. The UI clearly distinguishes findings, non-findings, not-verified checks, human review, not-applicable checks, partial runs and failed runs; it displays no compliance score or fake AI state.
 
+## Phase 3B relationship
+
+Phase 3B adds creator revisions and approval decisions without changing the deterministic evaluator. A revision creates another immutable `ContentVersion`; all `ReviewRun`, check, finding and evidence rows stay linked to the version actually evaluated. The newest version must receive a new complete run before an approval request can be submitted. The request pins the review run and that run's exact policy snapshot. Reviewers see findings and evidence through the approval detail page; approval does not alter the finding records.
+
+See `docs/APPROVAL_WORKFLOW.md` for request/decision models, state transitions, review freshness, policy invalidation, high-severity overrides, role boundaries and database concurrency assumptions.
+
 ## Current limitations
 
 - Plain text only; no campaign file upload, image, OCR, scanned text, PDF/DOCX parsing, formatting analysis or asset review.
 - Synchronous execution; no queue, cancellation, retry dashboard or streaming progress. Input and result limits bound the work.
-- No AI provider, tone analysis, semantic rules, paraphrase matching, synonym resolution, general factual verification, creator revision flow, reviewer approval/rejection decision, approval invalidation or export.
+- No AI provider, tone analysis, semantic rules, paraphrase matching, synonym resolution, general factual verification, campaign content uploads, automatic suggested-text replacement, notifications, tamper-proof auditing or export.
 - Required-term and disclaimer applicability is only as good as the explicit saved scope/trigger. If policy configuration is too broad or ambiguous, the engine will not manufacture a violation.
 - Approved facts use a deterministic, narrow comparison subset and can classify only the supported quantity/metric combinations. `SUPPORTED` means the claim text matches that stored structured statement; it does not prove that the underlying statement is externally true.
 - Future-effective sources are excluded; expired-source semantics do not exist in the source schema.

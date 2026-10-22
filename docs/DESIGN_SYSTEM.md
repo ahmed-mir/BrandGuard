@@ -85,3 +85,13 @@ The landing-page preview uses synthetic LumaDesk content and is labeled as illus
 - Confirmation is a separate, explicit, CSRF-protected POST after the manager has inspected and saved the current text. Use text plus a semantic state label to show whether confirmation is current or stale; a stale confirmation requires an action before publishing. Avoid presenting extraction as verification of facts.
 - The original document is private provenance, not a public download link. Do not expose storage URLs or path values in templates. Communicate that scanned-PDF OCR is unavailable and provide the existing manual-authoring route instead.
 - Continue using the established `.source-*`, `.document-*`, `.form-field` and `.button` classes and semantic tokens. Keep the provenance definition list compact, allow hashes to wrap, and stack form/provenance layouts below tablet width without page-level overflow.
+
+## Revision and approval workspace (Phase 3B)
+
+- Keep the approval inbox a real table at desktop widths. At mobile widths, stack each request into labelled rows; do not make the whole page horizontally scroll. Pending and stale requests use explicit text labels as well as semantic colors.
+- Version comparison is a two-column, line-based `difflib` view with removed, added and unchanged regions. Submitted text is always Django-escaped. Stack each old/new line pair at phone widths and allow long text to wrap.
+- Version history identifies author, timestamp, content version, latest real review state and version-bound approval state. A historical approval is never styled or labelled as current when content or policy changed.
+- Approval detail gives the exact content and evidence equal priority. The heading shows version, creator, channel, request date, review identity and policy revision. Findings remain visibly tied to source/version and are not hidden behind collapsed accordions.
+- Place decision forms after the content and findings so the reviewer can inspect the scope first. Make the approval action explicit; request-changes requires adjacent comment feedback. High-severity override copy must state that the finding remains open. Do not use an ambiguous single “Done” action.
+- The creator revision editor preloads the actual current text and explains that save creates a new immutable version and requires a fresh review. Suggested wording remains copyable; no automatic span replacement is exposed.
+- Use `.approval-*`, `.version-diff*`, `.version-history*` and existing `.review-*` component families. Reuse semantic tokens, borders and focus treatment. No new palette, modal framework, animation or visual redesign of the public landing page is needed.

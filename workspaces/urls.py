@@ -17,4 +17,8 @@ urlpatterns = [
         "reviews/",
         include(("content_reviews.urls", "content_reviews"), namespace="content_reviews"),
     ),
+    path(
+        "approvals/",
+        include(("approvals.urls", "approvals"), namespace="approvals"),
+    ),
 ]

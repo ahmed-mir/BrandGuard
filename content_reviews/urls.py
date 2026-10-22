@@ -8,6 +8,9 @@ urlpatterns = [
     path("", views.submission_list, name="list"),
     path("new/", views.submission_create, name="create"),
     path("<uuid:submission_id>/", views.submission_detail, name="detail"),
+    path("<uuid:submission_id>/revise/", views.revise_submission, name="revise"),
+    path("<uuid:submission_id>/submit/", views.submit_submission, name="submit"),
+    path("<uuid:submission_id>/compare/", views.compare_versions, name="compare"),
     path("<uuid:submission_id>/versions/<int:version_number>/", views.version_detail, name="version_detail"),
     path(
         "<uuid:submission_id>/versions/<int:version_number>/run/",

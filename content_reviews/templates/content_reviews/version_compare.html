@@ -1,0 +1,10 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="review-backline"><a class="text-link" href="{% url 'app:content_reviews:version_detail' submission.id newer.version_number %}">← Back to version {{ newer.version_number }}</a><span class="mono">VERSION HISTORY</span></div>
+<section class="review-form-intro"><p class="eyebrow"><span class="eyebrow__line"></span>CONTENT COMPARISON</p><h2>Version {{ older.version_number }} to {{ newer.version_number }}.</h2><p>Text is compared directly from the two saved immutable versions. Removed content appears on the left; additions appear on the right.</p></section>
+<div class="version-diff" role="table" aria-label="Text comparison of version {{ older.version_number }} and version {{ newer.version_number }}">
+  <div class="version-diff__head" role="row"><strong role="columnheader">Version {{ older.version_number }} · previous</strong><strong role="columnheader">Version {{ newer.version_number }} · current comparison</strong></div>
+  {% for row in diff_rows %}<div class="version-diff__row version-diff__row--{{ row.kind }}" role="row"><pre role="cell" data-label="Version {{ older.version_number }} · previous">{% if row.old %}{{ row.old }}{% elif row.kind == 'added' %}<span aria-label="No text in previous version">—</span>{% endif %}</pre><pre role="cell" data-label="Version {{ newer.version_number }} · compared">{% if row.new %}{{ row.new }}{% elif row.kind == 'removed' %}<span aria-label="No text in revised version">—</span>{% endif %}</pre></div>{% empty %}<p class="review-empty-inline">No comparison rows are available.</p>{% endfor %}
+</div>
+<p class="version-diff__legend"><span class="version-diff__swatch version-diff__swatch--removed" aria-hidden="true"></span>Removed <span class="version-diff__swatch version-diff__swatch--added" aria-hidden="true"></span>Added <span class="version-diff__swatch version-diff__swatch--equal" aria-hidden="true"></span>Unchanged</p>
+{% endblock %}

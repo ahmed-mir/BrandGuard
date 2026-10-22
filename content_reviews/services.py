@@ -1,12 +1,14 @@
 """Bounded deterministic content review against pinned, approved workspace policy."""
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+import hashlib
 import logging
 import re
 import uuid
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, OperationalError, transaction
+from django.db import connection
 from django.utils import timezone
 
 from brand_sources.models import BrandRule, SourceVersion, validate_matcher_data
@@ -87,6 +89,86 @@ def create_submission(*, workspace, creator, title, channel, audience, campaign_
         submission.full_clean()
         submission.save(update_fields=["current_version", "updated_at"])
     return submission, version
+
+
+def create_revision(*, submission_id, workspace, actor, base_version_id, base_content_hash, content_text, idempotency_key):
+    """Append a revision only if the exact base version is still current."""
+    try:
+        token = uuid.UUID(str(idempotency_key))
+        base_id = uuid.UUID(str(base_version_id))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValidationError("Refresh the version history and try again.") from exc
+    if not content_text or not content_text.strip():
+        raise ValidationError({"content_text": "Paste the revised marketing text before saving a new version."})
+    if len(content_text) > 20_000:
+        raise ValidationError({"content_text": "Content must be 20,000 characters or fewer."})
+
+    try:
+        with transaction.atomic():
+            membership = WorkspaceMembership.objects.select_for_update().filter(
+                workspace=workspace,
+                workspace__is_active=True,
+                user=actor,
+                user__is_active=True,
+                is_active=True,
+                role=WorkspaceMembership.Role.CREATOR,
+            ).first()
+            if membership is None:
+                raise ValidationError("Only an active creator in this workspace can revise content.")
+            submission = (
+                ContentSubmission.objects.select_for_update()
+                .filter(pk=submission_id, workspace=workspace, creator=actor)
+                .select_related("current_version")
+                .first()
+            )
+            if submission is None:
+                raise ContentSubmission.DoesNotExist
+
+            existing = submission.versions.filter(revision_idempotency_key=token).first()
+            if existing:
+                submitted_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+                if (
+                    existing.revision_of_id == base_id
+                    and existing.created_by_id == actor.pk
+                    and existing.content_hash == submitted_hash
+                ):
+                    return submission, existing, False
+                raise ValidationError("This revision request was already used for a different version.")
+
+            base = submission.versions.filter(pk=base_id).first()
+            if (
+                base is None
+                or submission.current_version_id != base.pk
+                or base.content_hash != base_content_hash
+            ):
+                raise ValidationError("This content changed in another session. Reload the latest version before revising.")
+            if content_text == base.content_text:
+                raise ValidationError({"content_text": "Make a change before saving a new content version."})
+
+            next_number = submission.versions.order_by("-version_number").values_list("version_number", flat=True).first() + 1
+            version = ContentVersion(
+                submission=submission,
+                version_number=next_number,
+                content_text=content_text,
+                created_by=actor,
+                revision_of=base,
+                revision_idempotency_key=token,
+                is_demo=submission.is_demo,
+            )
+            version.full_clean()
+            version.save()
+            submission.current_version = version
+            submission.full_clean()
+            submission.save(update_fields=["current_version", "updated_at"])
+            return submission, version, True
+    except IntegrityError as exc:
+        # The unique version and idempotency constraints are the final guard on
+        # databases that cannot serialize the row lock (notably local SQLite).
+        raise ValidationError("Another revision was saved first. Reload the latest version and try again.") from exc
+    except OperationalError as exc:
+        if connection.vendor == "sqlite" and "locked" in str(exc).casefold():
+            raise ValidationError("Another revision is being saved. Reload the latest version and try again.") from exc
+        raise
 
 
 def start_review(*, submission_id, version_number, workspace, actor, idempotency_key):
