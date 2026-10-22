@@ -52,11 +52,11 @@ def submit_for_approval(*, submission_id, workspace, actor, review_run_id):
     locked_workspace = Workspace.objects.select_for_update().get(pk=workspace.pk, is_active=True)
     if not _has_role(locked_workspace, actor, (WorkspaceMembership.Role.CREATOR,)):
         raise ValidationError("Only an active creator in this workspace can submit content for approval.")
-    submission = (
-        ContentSubmission.objects.select_for_update()
-        .filter(pk=submission_id, workspace=locked_workspace, creator=actor)
-        .select_related("current_version").first()
-    )
+    submission = _locked_submission_for_approval(
+        submission_id=submission_id,
+        workspace_id=locked_workspace.pk,
+        creator_id=actor.pk,
+    ).first()
     if submission is None or submission.current_version_id is None:
         raise ContentSubmission.DoesNotExist
     version = submission.current_version
@@ -143,6 +143,15 @@ def _locked_request(*, request_id, workspace, actor):
     if approval is None:
         raise ApprovalRequest.DoesNotExist
     return approval
+
+
+def _locked_submission_for_approval(*, submission_id, workspace_id, creator_id):
+    """Lock the submission row without joining its nullable current version."""
+    return ContentSubmission.objects.select_for_update().filter(
+        pk=submission_id,
+        workspace_id=workspace_id,
+        creator_id=creator_id,
+    )
 
 
 def _ensure_pending(approval, actor):

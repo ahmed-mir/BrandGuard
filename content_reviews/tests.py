@@ -12,18 +12,20 @@ from django.utils import timezone
 from brand_sources.models import ApprovedFact, BrandRule, BrandSource
 from brand_sources.demo import seed_lumadesk_source_pack
 from brand_sources.services import approve_source_version, create_draft_version, create_source
+from approvals.services import _locked_submission_for_approval
 from workspaces.models import Workspace, WorkspaceMembership
 
+from .exports import _locked_export_submission_queryset
 from .models import ContentSubmission, ContentVersion, ReviewCheck, ReviewFinding, ReviewRun
-from .services import _locked_review_submission, create_submission, evaluate_rule, execute_review
+from .services import _locked_submission_queryset, create_submission, evaluate_rule, execute_review
 
 
 User = get_user_model()
 
 
 class PostgreSQLReviewLockSQLTests(SimpleTestCase):
-    def test_review_start_lock_query_does_not_join_nullable_current_version(self):
-        """Compile the production lock query with Django's PostgreSQL backend, no DB connection."""
+    def _postgres_sql(self, queryset):
+        """Compile a production lock query with Django's PostgreSQL backend, without connecting."""
         from django.db.backends.postgresql.base import DatabaseWrapper
 
         database = DatabaseWrapper(
@@ -38,15 +40,22 @@ class PostgreSQLReviewLockSQLTests(SimpleTestCase):
         )
         database.get_autocommit = lambda: False
         database.in_atomic_block = True
-        queryset = _locked_review_submission(
-            submission_id=uuid.uuid4(),
-            workspace_id=1,
-        )
         sql, _params = queryset.query.get_compiler(connection=database).as_sql()
         database.close()
+        return sql
 
-        self.assertIn("FOR UPDATE", sql.upper())
-        self.assertNotIn("LEFT OUTER JOIN", sql.upper())
+    def test_revision_review_submission_and_export_lock_queries_avoid_nullable_outer_join(self):
+        submission_id = uuid.uuid4()
+        queries = [
+            _locked_submission_queryset(submission_id=submission_id, workspace_id=1, creator_id=1),
+            _locked_submission_for_approval(submission_id=submission_id, workspace_id=1, creator_id=1),
+            _locked_export_submission_queryset(submission_id=submission_id, workspace_id=1),
+        ]
+        for queryset in queries:
+            with self.subTest(query=queryset.query):
+                sql = self._postgres_sql(queryset).upper()
+                self.assertIn("FOR UPDATE", sql)
+                self.assertNotIn("LEFT OUTER JOIN", sql)
 
 
 class ReviewFixtureMixin:

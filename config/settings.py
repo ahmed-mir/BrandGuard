@@ -386,5 +386,6 @@ LOGGING = {
     "loggers": {
         "django.request": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
         "content_reviews.services": {"handlers": ["stderr"], "level": "WARNING", "propagate": False},
+        "content_reviews.views": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
     },
 }

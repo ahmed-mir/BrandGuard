@@ -81,12 +81,10 @@ def approved_export_for(*, submission_id, user, workspace_id=None):
             WorkspaceMembership.Role.ADMIN,
         }:
             raise PermissionDenied("Your active workspace role cannot export content.")
-        submission = (
-            ContentSubmission.objects.select_for_update()
-            .select_related("workspace", "creator", "current_version")
-            .filter(pk=submission_id, workspace=workspace)
-            .first()
-        )
+        submission = _locked_export_submission_queryset(
+            submission_id=submission_id,
+            workspace_id=workspace.pk,
+        ).first()
         if submission is None:
             raise ExportNotFound
         if membership.role == WorkspaceMembership.Role.CREATOR and submission.creator_id != user.pk:
@@ -172,6 +170,14 @@ def approved_export_for(*, submission_id, user, workspace_id=None):
             policy_versions=versions,
             generated_at=generated_at,
         )
+
+
+def _locked_export_submission_queryset(*, submission_id, workspace_id):
+    """Lock the submission row without joining its nullable current version."""
+    return ContentSubmission.objects.select_for_update().filter(
+        pk=submission_id,
+        workspace_id=workspace_id,
+    ).select_related("workspace", "creator")
 
 
 def safe_export_basename(title, version_number):

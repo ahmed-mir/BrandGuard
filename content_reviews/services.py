@@ -115,12 +115,11 @@ def create_revision(*, submission_id, workspace, actor, base_version_id, base_co
             ).first()
             if membership is None:
                 raise ValidationError("Only an active creator in this workspace can revise content.")
-            submission = (
-                ContentSubmission.objects.select_for_update()
-                .filter(pk=submission_id, workspace=workspace, creator=actor)
-                .select_related("current_version")
-                .first()
-            )
+            submission = _locked_submission_queryset(
+                submission_id=submission_id,
+                workspace_id=workspace.pk,
+                creator_id=actor.pk,
+            ).first()
             if submission is None:
                 raise ContentSubmission.DoesNotExist
 
@@ -189,7 +188,7 @@ def start_review(*, submission_id, version_number, workspace, actor, idempotency
         ).first()
         if membership is None:
             raise ValidationError("Only an active creator in this workspace can run a content review.")
-        submission = _locked_review_submission(
+        submission = _locked_submission_queryset(
             submission_id=submission_id,
             workspace_id=locked_workspace.pk,
         ).first()
@@ -269,16 +268,18 @@ def start_review(*, submission_id, version_number, workspace, actor, idempotency
     # Query scoping above deliberately derives all identity from the locked workspace.
 
 
-def _locked_review_submission(*, submission_id, workspace_id):
+def _locked_submission_queryset(*, submission_id, workspace_id, creator_id=None):
     """Lock only the submission row; current_version is nullable on PostgreSQL."""
-    return (
-        ContentSubmission.objects.select_for_update()
-        .filter(pk=submission_id, workspace_id=workspace_id)
-        # Do not join current_version here: it is a nullable FK, and PostgreSQL
-        # rejects FOR UPDATE when that creates a LEFT OUTER JOIN. The review
-        # path only needs creator_id and loads the requested version separately.
-        .select_related("creator")
+    queryset = ContentSubmission.objects.select_for_update().filter(
+        pk=submission_id,
+        workspace_id=workspace_id,
     )
+    if creator_id is not None:
+        queryset = queryset.filter(creator_id=creator_id)
+    # Do not select_related("current_version"): this nullable FK adds a LEFT
+    # OUTER JOIN that PostgreSQL cannot include in an unrestricted FOR UPDATE.
+    # The workflow only needs current_version_id and loads versions separately.
+    return queryset
 
 
 def execute_review(*, submission_id, version_number, workspace, actor, idempotency_key):

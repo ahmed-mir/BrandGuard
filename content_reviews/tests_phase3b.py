@@ -1,5 +1,8 @@
+import io
+import logging
 import re
 import uuid
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import Client, TestCase, override_settings
@@ -275,6 +278,7 @@ class RevisionAndApprovalViewTests(ReviewFixtureMixin, TestCase):
 
     def test_creator_revision_view_appends_version_and_rejects_stale_post(self):
         submission, version, review = self.run_review("Original line.")
+        original_content = version.content_text
         self.setup_client(self.creator)
         url = reverse("app:content_reviews:revise", args=[submission.pk])
         get_response = self.client.get(url)
@@ -286,11 +290,58 @@ class RevisionAndApprovalViewTests(ReviewFixtureMixin, TestCase):
         response = self.client.post(url, post)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(submission.versions.count(), 2)
+        version_two = submission.versions.get(version_number=2)
+        submission.refresh_from_db()
+        version.refresh_from_db()
+        self.assertEqual(version.content_text, original_content)
+        self.assertEqual(version.review_runs.get().pk, review.pk)
+        self.assertEqual(version_two.review_runs.count(), 0)
+        self.assertEqual(submission.current_version_id, version_two.pk)
+
+        repeated = self.client.post(url, post)
+        self.assertEqual(repeated.status_code, 302)
+        self.assertEqual(submission.versions.count(), 2)
+        self.assertEqual(submission.current_version_id, version_two.pk)
+
         stale = dict(post, idempotency_key=str(uuid.uuid4()), content_text="A competing stale edit.")
         response = self.client.post(url, stale)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "changed in another session")
         self.assertEqual(submission.versions.count(), 2)
+
+    def test_unexpected_revision_error_is_logged_safely_and_remains_a_server_error(self):
+        submission, version, _review = self.run_review("Original private campaign text.")
+        self.setup_client(self.creator)
+        url = reverse("app:content_reviews:revise", args=[submission.pk])
+        page = self.client.get(url)
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        from config.logging_utils import SafeTracebackFormatter
+        handler.setFormatter(SafeTracebackFormatter("%(levelname)s %(message)s"))
+        view_logger = logging.getLogger("content_reviews.views")
+        view_logger.addHandler(handler)
+        self.client.raise_request_exception = False
+        private_value = "PRIVATE_MARKETING_CONTENT_SENTINEL"
+        try:
+            with patch("content_reviews.views.create_revision", side_effect=RuntimeError(private_value)):
+                response = self.client.post(url, {
+                    "content_text": "Revised text.",
+                    "base_version_id": str(version.pk),
+                    "base_content_hash": version.content_hash,
+                    "idempotency_key": hidden_value(page, "idempotency_key"),
+                })
+        finally:
+            view_logger.removeHandler(handler)
+            handler.close()
+
+        output = stream.getvalue()
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("ERROR", output)
+        self.assertIn("error_type=RuntimeError", output)
+        self.assertIn("Traceback (most recent call last)", output)
+        self.assertIn("RuntimeError: [exception message redacted]", output)
+        self.assertNotIn(private_value, output)
+        self.assertEqual(submission.versions.count(), 1)
 
     def test_version_comparison_uses_escaped_saved_text(self):
         submission, first, _ = self.run_review("<script>alert(1)</script>\nOld phrase.")

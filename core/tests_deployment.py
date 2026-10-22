@@ -131,6 +131,7 @@ class ProductionConfigurationTests(SimpleTestCase):
 
     def test_review_exception_logs_keep_trace_frames_but_redact_exception_values(self):
         from config.logging_utils import SafeTracebackFormatter
+        from django.conf import settings
 
         private_value = "private marketing copy and connection password"
         try:
@@ -144,6 +145,11 @@ class ProductionConfigurationTests(SimpleTestCase):
         self.assertIn("RuntimeError: [exception message redacted]", formatted)
         self.assertIn("Traceback (most recent call last)", formatted)
         self.assertNotIn(private_value, formatted)
+        self.assertEqual(settings.LOGGING["handlers"]["stderr"]["stream"], "ext://sys.stderr")
+        self.assertEqual(
+            settings.LOGGING["loggers"]["content_reviews.views"]["handlers"],
+            ["stderr"],
+        )
 
     def test_private_s3_storage_can_be_configured_without_network_credentials(self):
         env = os.environ.copy()

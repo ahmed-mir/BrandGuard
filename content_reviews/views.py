@@ -1,5 +1,6 @@
 from difflib import SequenceMatcher
 import uuid
+import logging
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -19,6 +20,7 @@ from .services import create_revision, create_submission, execute_review
 
 
 CREATOR = WorkspaceMembership.Role.CREATOR
+logger = logging.getLogger(__name__)
 
 
 def _context(request, title, extra=None):
@@ -197,6 +199,15 @@ def revise_submission(request, submission_id):
                         form.add_error(field if field in form.fields else None, error)
             else:
                 form.add_error(None, " ".join(exc.messages))
+        except Exception as exc:
+            logger.error(
+                "Unexpected revision save failure (workspace_id=%s, submission_id=%s, error_type=%s).",
+                request.workspace.pk,
+                submission.pk,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            raise
         else:
             if created:
                 messages.success(request, f"Saved as new immutable content version {version.version_number}. Run a fresh review before submitting it for approval.")
