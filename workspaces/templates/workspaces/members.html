@@ -1,0 +1,26 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="members-intro">
+  <p class="eyebrow"><span class="eyebrow__line"></span>WORKSPACE ACCESS</p>
+  <p>People with a membership in <strong>{{ workspace.name }}</strong>. This list is read-only; membership changes are not available yet.</p>
+</div>
+
+<section class="members-section" aria-labelledby="members-list-title">
+  <div class="members-section__heading"><div><h2 id="members-list-title">Current members</h2><p>Membership and access are resolved from this workspace.</p></div><span class="members-section__total"><span class="mono">{{ member_records|length }}</span> member{{ member_records|length|pluralize }}</span></div>
+  {% if member_records %}
+    <ul class="members-list">
+      {% for record in member_records %}
+        <li class="member-row">
+          <div class="member-row__identity">
+            <span class="app-user-card__mark" aria-hidden="true">{% if record.user.get_full_name %}{{ record.user.get_full_name|slice:":1"|upper }}{% else %}{{ record.user.username|slice:":1"|upper }}{% endif %}</span>
+            <span><strong>{% if record.user.get_full_name %}{{ record.user.get_full_name }}{% else %}{{ record.user.username }}{% endif %}</strong><small>{{ record.user.email|default:record.user.username }}</small></span>
+          </div>
+          <dl class="member-row__facts"><div><dt>Role</dt><dd>{{ record.get_role_display }}</dd></div><div><dt>Membership</dt><dd><span class="member-status{% if not record.is_active %} member-status--inactive{% endif %}"><span class="status-dot{% if record.is_active %} status-dot--green{% else %} status-dot--slate{% endif %}" aria-hidden="true"></span>{% if record.is_active %}Active{% else %}Inactive{% endif %}</span></dd></div></dl>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="state members-empty"><h3 class="state__title">No workspace members yet</h3><p class="state__body">Membership records will appear here once they are assigned to this workspace.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

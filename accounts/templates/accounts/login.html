@@ -1,0 +1,43 @@
+{% extends "core/base.html" %}
+{% block title %}Sign in — BrandGuard{% endblock %}
+{% block body_class %}login-page{% endblock %}
+{% block body %}
+<a class="skip-link" href="#login-form">Skip to sign in</a>
+<div class="login-layout">
+  <aside class="login-story" aria-labelledby="login-story-title">
+    <a class="wordmark" href="{% url 'landing' %}" aria-label="BrandGuard home"><span class="wordmark__mark" aria-hidden="true"><i></i><i></i><i></i></span><span>brandguard</span></a>
+    <div class="login-story__content">
+      <p class="eyebrow"><span class="eyebrow__line"></span>Brand governance, with clarity</p>
+      <h1 id="login-story-title">Good decisions<br>start with <em>good evidence.</em></h1>
+      <p>Bring brand guidance and marketing work into one careful review process, with people in control at every step.</p>
+      <div class="login-story__principle"><span class="login-story__mark" aria-hidden="true">01</span><span>Know what was checked.<br>Know what was approved.</span></div>
+    </div>
+    <a class="login-back" href="{% url 'landing' %}#workflow">See how BrandGuard works <span aria-hidden="true">↗</span></a>
+  </aside>
+  <main class="login-panel" id="login-form">
+    <div class="login-panel__inner">
+      <p class="eyebrow"><span class="eyebrow__line"></span>Your workspace</p>
+      <h2>Welcome back.</h2>
+      <p class="login-intro">Sign in to continue to your assigned BrandGuard workspace.</p>
+      <form method="post" action="{% url 'accounts:login' %}" class="login-form" novalidate>
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+        {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="form-field">
+          <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+          {{ form.username }}
+          {% for error in form.username.errors %}<p class="form-error" id="username-error">{{ error }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.password.id_for_label }}">Password</label>
+          {{ form.password }}
+          {% for error in form.password.errors %}<p class="form-error" id="password-error">{{ error }}</p>{% endfor %}
+        </div>
+        <button class="button button--primary login-submit" type="submit">Sign in <span aria-hidden="true">→</span></button>
+      </form>
+      <div class="login-help"><span class="login-help__rule"></span><p>No public registration. Accounts are provisioned for a workspace. For the local LumaDesk demo, create them with the documented <strong>seed_demo</strong> command.</p></div>
+      <a class="login-home" href="{% url 'landing' %}">← Back to BrandGuard</a>
+    </div>
+  </main>
+</div>
+{% endblock %}

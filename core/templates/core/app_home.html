@@ -1,0 +1,44 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="overview-intro">
+  <section class="workspace-welcome" aria-labelledby="workspace-welcome-title">
+    <p class="eyebrow"><span class="eyebrow__line"></span>{{ membership.get_role_display }}</p>
+    <h2 id="workspace-welcome-title">Welcome, {{ identity_name }}.</h2>
+    <p class="workspace-welcome__lede">{{ role_description }}</p>
+  </section>
+  <section class="workspace-status" aria-labelledby="workspace-status-title">
+    <div class="workspace-status__heading"><p class="mono">WORKSPACE STATUS</p><span class="status status--success"><span class="status-dot status-dot--green" aria-hidden="true"></span>Active</span></div>
+    <h2 id="workspace-status-title">{{ workspace.name }}</h2>
+    <dl class="workspace-status__details">
+      <div><dt>Your access</dt><dd>{{ membership.get_role_display }}</dd></div>
+      <div><dt>Member since</dt><dd><time datetime="{{ membership.created_at|date:'Y-m-d' }}">{{ membership.created_at|date:"M j, Y" }}</time></dd></div>
+    </dl>
+  </section>
+</div>
+
+{% if membership.role == "ADMIN" %}
+<section class="workspace-config" aria-labelledby="workspace-config-title">
+  <div><p class="eyebrow"><span class="eyebrow__line"></span>Administration</p><h2 id="workspace-config-title">Workspace configuration</h2><p>Current workspace details are read-only in this phase.</p></div>
+  <dl><div><dt>Workspace ID</dt><dd class="mono">{{ workspace.slug }}</dd></div><div><dt>Workspace created</dt><dd><time datetime="{{ workspace.created_at|date:'Y-m-d' }}">{{ workspace.created_at|date:"M j, Y" }}</time></dd></div><div><dt>Workspace status</dt><dd>Active</dd></div></dl>
+  <a href="{% url 'app:members' %}" class="text-link">Review workspace members <span aria-hidden="true">→</span></a>
+</section>
+{% endif %}
+
+<section class="overview-next" aria-labelledby="overview-next-title">
+  <div class="overview-next__heading"><div><p class="eyebrow"><span class="eyebrow__line"></span>YOUR NEXT STEP</p><h2 id="overview-next-title">A clear place to begin.</h2></div></div>
+  <div class="overview-next__body">
+    <p>{{ role_description }}</p>
+    {% if membership.role == "ADMIN" %}
+      <a class="button button--secondary" href="{% url 'app:members' %}">View workspace members <span aria-hidden="true">→</span></a>
+    {% else %}
+      <a class="button button--secondary" href="{% url 'app:profile' %}">Review account settings <span aria-hidden="true">→</span></a>
+    {% endif %}
+  </div>
+</section>
+
+<section class="review-empty" aria-labelledby="review-empty-title">
+  <div class="review-empty__index mono" aria-hidden="true">BG / 01</div>
+  <div><p class="eyebrow"><span class="eyebrow__line"></span>CONTENT REVIEWS</p><h2 id="review-empty-title">Review activity is not available yet.</h2><p>Submission, evidence-backed findings and approval records will appear here when those capabilities are implemented. This workspace does not yet store review activity.</p></div>
+  <span class="review-empty__state">NOT AVAILABLE IN THIS PHASE</span>
+</section>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="settings-intro">
+  <p class="eyebrow"><span class="eyebrow__line"></span>YOUR ACCOUNT</p>
+  <p>Update your name or choose a new password. Your username, email, workspace and role are managed separately and cannot be changed here.</p>
+</div>
+
+<div class="settings-grid">
+  <section class="settings-panel" aria-labelledby="profile-panel-title">
+    <div class="settings-panel__heading"><span class="settings-panel__index mono">01</span><div><h2 id="profile-panel-title">Profile details</h2><p>Basic information associated with your account.</p></div></div>
+    <dl class="profile-facts">
+      <div><dt>Username</dt><dd>{{ request.user.username }}</dd></div>
+      <div><dt>Email address</dt><dd>{{ request.user.email|default:"No email address on file" }}</dd></div>
+      <div><dt>Workspace</dt><dd>{{ workspace.name }}</dd></div>
+      <div><dt>Workspace role</dt><dd>{{ membership.get_role_display }}</dd></div>
+    </dl>
+    <form method="post" class="settings-form">
+      {% csrf_token %}<input type="hidden" name="form_action" value="profile">
+      {% if active_form == "profile" and profile_form.non_field_errors %}<div class="form-alert" role="alert">{{ profile_form.non_field_errors }}</div>{% endif %}
+      {% for field in profile_form %}
+        <div class="form-field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}<ul class="form-error-list" id="{{ field.auto_id }}-errors" role="alert">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+      {% endfor %}
+      <button class="button button--primary" type="submit">Save name</button>
+    </form>
+  </section>
+
+  <section class="settings-panel" aria-labelledby="password-panel-title">
+    <div class="settings-panel__heading"><span class="settings-panel__index mono">02</span><div><h2 id="password-panel-title">Change password</h2><p>Confirm your current password before setting a new one.</p></div></div>
+    <form method="post" class="settings-form">
+      {% csrf_token %}<input type="hidden" name="form_action" value="password">
+      {% if active_form == "password" and password_form.non_field_errors %}<div class="form-alert" role="alert">{{ password_form.non_field_errors }}</div>{% endif %}
+      {% for field in password_form %}
+        <div class="form-field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<div class="field__hint" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</div>{% endif %}
+          {% if field.errors %}<ul class="form-error-list" id="{{ field.auto_id }}-errors" role="alert">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+      {% endfor %}
+      <button class="button button--secondary" type="submit">Update password</button>
+    </form>
+    <p class="settings-panel__note">Changing your password keeps your current session active.</p>
+  </section>
+</div>
+{% endblock %}

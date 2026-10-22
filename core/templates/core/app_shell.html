@@ -1,0 +1,86 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% block title %}{{ page_title|default:"Workspace" }} — {{ app_name|default:"BrandGuard" }}{% endblock %}
+{% block body_class %}workspace-page{% endblock %}
+{% block extra_head %}<script src="{% static 'core/js/app_shell.js' %}" defer></script>{% endblock %}
+{% block body %}
+<a class="skip-link" href="#app-content">Skip to content</a>
+<div class="app-shell">
+  <button class="app-sidebar-scrim" type="button" data-app-menu-close hidden aria-label="Close workspace navigation"></button>
+  <aside class="app-sidebar" id="app-sidebar" aria-label="Workspace navigation">
+    <div class="app-sidebar__brand-row">
+      <a class="wordmark" href="{% url 'landing' %}" aria-label="BrandGuard public home">
+        <span class="wordmark__mark" aria-hidden="true"><i></i><i></i><i></i></span><span>brandguard</span>
+      </a>
+      <button class="app-sidebar__close" type="button" data-app-menu-close hidden aria-label="Close navigation">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg>
+      </button>
+    </div>
+
+    <section class="app-workspace-context" aria-label="Current workspace">
+      <span class="app-sidebar__label">CURRENT WORKSPACE</span>
+      <strong>{{ workspace.name }}</strong>
+      <span>{{ membership.get_role_display }}</span>
+    </section>
+
+    <nav class="app-sidebar__nav" aria-label="Workspace sections">
+      <span class="app-sidebar__label">WORKSPACE</span>
+      <a href="{% url 'app:home' %}"{% if active_navigation == 'overview' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h5v5H3zM12 3h5v5h-5zM3 12h5v5H3zM12 12h5v5h-5z"/></svg>
+        <span>Overview</span>
+      </a>
+      {% if membership.role == "BRAND_MANAGER" or membership.role == "ADMIN" %}
+        <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg><span>Brand sources</span><small>Unavailable</small></span>
+      {% endif %}
+      {% if membership.role == "CREATOR" or membership.role == "REVIEWER" %}
+        <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg><span>Content reviews</span><small>Unavailable</small></span>
+      {% endif %}
+      {% if membership.role == "REVIEWER" %}
+        <span class="app-nav-unavailable" aria-disabled="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span><small>Unavailable</small></span>
+      {% endif %}
+      {% if membership.role == "ADMIN" %}
+        <a href="{% url 'app:members' %}"{% if active_navigation == 'members' %} aria-current="page"{% endif %}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="7" r="3"/><path d="M2 17c.5-3 2.2-4.5 5-4.5s4.5 1.5 5 4.5M13 4.5a3 3 0 0 1 0 5.5m1 2c2.2.3 3.5 1.6 4 4"/></svg>
+          <span>Workspace members</span>
+        </a>
+      {% endif %}
+      <span class="app-sidebar__label app-sidebar__label--account">ACCOUNT</span>
+      <a href="{% url 'app:profile' %}"{% if active_navigation == 'profile' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="6" r="3"/><path d="M3.5 17c.5-3.5 2.7-5.5 6.5-5.5s6 2 6.5 5.5"/></svg>
+        <span>Account settings</span>
+      </a>
+    </nav>
+
+    <div class="app-sidebar__foot">
+      <a class="app-public-link" href="{% url 'landing' %}#workflow">About BrandGuard <span aria-hidden="true">↗</span></a>
+      <div class="app-user-card">
+        <span class="app-user-card__mark" aria-hidden="true">{{ identity_name|slice:":1"|upper }}</span>
+        <span class="app-user-card__text"><strong>{{ identity_name|default:"Your account" }}</strong><small>{{ user_email|default:"Account details" }}</small></span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="app-main" id="app-main">
+    <header class="app-topbar">
+      <div class="app-topbar__heading">
+        <button class="app-menu-toggle" type="button" data-app-menu-toggle aria-expanded="false" aria-controls="app-sidebar" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+          <span class="visually-hidden">Open workspace navigation</span>
+        </button>
+        <span class="app-topbar__title">{{ page_title }}</span>
+      </div>
+      <div class="app-topbar__actions">
+        <span class="app-topbar__identity">{{ identity_name }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}" class="app-logout">{% csrf_token %}<button class="app-logout__button" type="submit">Sign out</button></form>
+      </div>
+    </header>
+    <main class="app-content" id="app-content" tabindex="-1">
+      <div class="app-content__inner">
+        {% if messages %}<div class="app-messages" role="status" aria-live="polite">{% for message in messages %}<p class="app-message app-message--{{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+        <h1 class="app-content__title">{{ page_title }}</h1>
+        {% block app_content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+{% endblock %}
