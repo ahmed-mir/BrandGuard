@@ -1,10 +1,24 @@
+import hashlib
+import logging
+import re
+import uuid
+
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
 from workspaces.models import Workspace
 
-from .models import ApprovedFact, BrandRule, BrandSource, SourceVersion, policy_snapshot_hash
+from .ingestion import DocumentImportError, extract_uploaded_document
+from .models import ApprovedFact, BrandDocumentImport, BrandRule, BrandSource, SourceVersion, policy_snapshot_hash
+
+
+logger = logging.getLogger(__name__)
+
+
+class DocumentImportPersistenceError(Exception):
+    """The file or policy record could not be safely persisted."""
 
 
 def active_policy_versions(workspace):
@@ -53,6 +67,96 @@ def create_source(*, workspace, owner, title, source_type, description, source_t
     version.full_clean()
     version.save()
     return source, version
+
+
+def import_source_document(*, workspace, owner, title, source_type, description, upload):
+    """Extract and persist a private document linked to a real Phase 2A draft."""
+    try:
+        extracted = extract_uploaded_document(upload)
+    except DocumentImportError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Brand document could not be read (workspace_id=%s, error_type=%s).",
+            workspace.pk,
+            type(exc).__name__,
+        )
+        raise DocumentImportError(
+            "The selected document could not be read safely. Choose another file or enter the authoritative text manually."
+        ) from exc
+    safe_filename = _safe_original_filename(upload.name, extracted.document_type)
+    file_hash = hashlib.sha256(extracted.raw_bytes).hexdigest()
+    document_import = BrandDocumentImport(
+        workspace=workspace,
+        original_filename=safe_filename,
+        document_type=extracted.document_type,
+        uploaded_by=owner,
+        file_sha256=file_hash,
+        extracted_character_count=len(extracted.text),
+        pdf_page_count=extracted.page_count,
+    )
+    stored_name = ""
+    try:
+        with transaction.atomic():
+            source, version = create_source(
+                workspace=workspace,
+                owner=owner,
+                title=title,
+                source_type=source_type,
+                description=description,
+                source_text=extracted.text,
+            )
+            document_import.source_version = version
+            # upload_to derives only a generated UUID and validated extension;
+            # the client filename is stored as display metadata, never as a path.
+            generated_filename = f"{uuid.uuid4().hex}.{extracted.document_type.lower()}"
+            document_import.original_document.save(
+                generated_filename,
+                ContentFile(extracted.raw_bytes),
+                save=False,
+            )
+            stored_name = document_import.original_document.name
+            document_import.full_clean()
+            document_import.save()
+    except Exception as exc:
+        if stored_name:
+            try:
+                document_import.original_document.storage.delete(stored_name)
+            except Exception:
+                logger.exception("Private brand document cleanup failed after an import error.")
+        logger.warning(
+            "Brand document import failed before completion (workspace_id=%s, error_type=%s).",
+            workspace.pk,
+            type(exc).__name__,
+        )
+        raise DocumentImportPersistenceError(
+            "The document could not be stored safely. No brand source was created; please try again."
+        ) from exc
+    return source, version, document_import
+
+
+@transaction.atomic
+def confirm_imported_text(*, source_id, version_number, workspace, actor):
+    document_import = (
+        BrandDocumentImport.objects.select_for_update()
+        .select_related("source_version", "source_version__source")
+        .filter(
+            workspace_id=workspace.pk,
+            source_version__source_id=source_id,
+            source_version__source__workspace_id=workspace.pk,
+            source_version__version_number=version_number,
+            source_version__status=SourceVersion.Status.DRAFT,
+        )
+        .first()
+    )
+    if document_import is None:
+        raise SourceVersion.DoesNotExist
+    document_import.confirmed_text_sha256 = document_import.source_version.content_hash
+    document_import.confirmed_by = actor
+    document_import.confirmed_at = timezone.now()
+    document_import.full_clean()
+    document_import.save(update_fields=["confirmed_text_sha256", "confirmed_by", "confirmed_at"])
+    return document_import
 
 
 @transaction.atomic
@@ -127,6 +231,13 @@ def approve_source_version(*, source_id, version_number, workspace, actor):
     if version.status != SourceVersion.Status.DRAFT:
         raise ValidationError("Only a draft version can be approved. Earlier approvals remain preserved.")
 
+    try:
+        document_import = version.document_import
+    except BrandDocumentImport.DoesNotExist:
+        document_import = None
+    if document_import and not document_import.text_is_confirmed:
+        raise ValidationError("Review the extracted text and confirm its current version before publishing this imported source.")
+
     version.full_clean()
     for fact in version.facts.all():
         fact.full_clean()
@@ -166,3 +277,12 @@ def _unique_source_slug(workspace, title):
         candidate = f"{base[:130 - len(str(suffix)) - 1]}-{suffix}"
         suffix += 1
     return candidate
+
+
+def _safe_original_filename(value, document_type):
+    filename = str(value or "").replace("\\", "/").split("/")[-1]
+    filename = re.sub(r"[\x00-\x1f\x7f]", "", filename).strip()
+    filename = filename[:255]
+    if not filename or filename in {".", ".."}:
+        return f"brand-document.{document_type.lower()}"
+    return filename

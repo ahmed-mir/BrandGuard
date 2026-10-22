@@ -1,7 +1,33 @@
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 from .models import ApprovedFact, BrandRule, BrandSource, SourceVersion, validate_matcher_data
+
+
+class BrandDocumentImportForm(forms.Form):
+    title = forms.CharField(max_length=160, label="Source title")
+    source_type = forms.ChoiceField(choices=BrandSource.SourceType.choices, label="Source type")
+    description = forms.CharField(max_length=500, required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    document = forms.FileField(
+        label="Brand document",
+        help_text="TXT (UTF-8), DOCX, or text-based PDF. Maximum 5 MB; PDFs up to 10 pages.",
+        widget=forms.ClearableFileInput(attrs={"accept": ".txt,.docx,.pdf"}),
+    )
+
+    def clean_document(self):
+        document = self.cleaned_data["document"]
+        if document.size > settings.BRAND_DOCUMENT_MAX_UPLOAD_BYTES:
+            raise forms.ValidationError("The document exceeds the 5 MB upload limit.")
+        return document
+
+
+class ImportedTextConfirmationForm(forms.Form):
+    confirm_text = forms.BooleanField(
+        required=True,
+        label="I reviewed the extracted text and confirm it is accurate enough to serve as an authoritative brand source.",
+        error_messages={"required": "Review the complete draft text and check the confirmation box before continuing."},
+    )
 
 
 class BrandSourceCreateForm(forms.ModelForm):

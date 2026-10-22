@@ -1,10 +1,12 @@
 import hashlib
 import json
 import uuid
+from pathlib import PurePath
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, MinLengthValidator, RegexValidator
+from django.core.files.storage import storages
 from django.db import models
 from django.db.models import Q
 
@@ -184,6 +186,97 @@ class SourceVersion(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError("Source versions are retained for policy history and cannot be deleted.")
+
+
+def private_document_storage():
+    """Resolve the named private storage backend lazily and migrate portably."""
+    return storages["private_documents"]
+
+
+def private_document_upload_to(instance, filename):
+    suffix = PurePath(filename).suffix.lower()
+    return f"brand-source-imports/{instance.workspace_id}/{instance.pk.hex}{suffix}"
+
+
+class BrandDocumentImport(models.Model):
+    class DocumentType(models.TextChoices):
+        TXT = "TXT", "TXT"
+        DOCX = "DOCX", "DOCX"
+        PDF = "PDF", "PDF"
+
+    class ExtractionOutcome(models.TextChoices):
+        TEXT_EXTRACTED = "TEXT_EXTRACTED", "Text extracted"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="brand_document_imports",
+    )
+    source_version = models.OneToOneField(
+        SourceVersion,
+        on_delete=models.PROTECT,
+        related_name="document_import",
+    )
+    original_document = models.FileField(
+        upload_to=private_document_upload_to,
+        storage=private_document_storage,
+        max_length=500,
+    )
+    original_filename = models.CharField(max_length=255)
+    document_type = models.CharField(max_length=8, choices=DocumentType.choices)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="brand_document_imports",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    file_sha256 = models.CharField(max_length=64)
+    extraction_outcome = models.CharField(
+        max_length=24,
+        choices=ExtractionOutcome.choices,
+        default=ExtractionOutcome.TEXT_EXTRACTED,
+    )
+    extracted_character_count = models.PositiveIntegerField()
+    pdf_page_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    confirmed_text_sha256 = models.CharField(max_length=64, blank=True, default="")
+    confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="confirmed_brand_document_imports",
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-uploaded_at", "id"]
+        indexes = [models.Index(fields=["workspace", "uploaded_at"], name="docimp_ws_upload_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(confirmed_text_sha256="", confirmed_by__isnull=True, confirmed_at__isnull=True)
+                    | Q(confirmed_text_sha256__gt="", confirmed_by__isnull=False, confirmed_at__isnull=False)
+                ),
+                name="docimp_confirm_meta_ck",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.document_type} import for {self.source_version}"
+
+    def clean(self):
+        if self.source_version_id and self.workspace_id != self.source_version.source.workspace_id:
+            raise ValidationError({"workspace": "The imported document and source version must belong to the same workspace."})
+
+    @property
+    def text_is_confirmed(self):
+        return bool(
+            self.confirmed_by_id
+            and self.confirmed_at
+            and self.confirmed_text_sha256
+            and self.confirmed_text_sha256 == self.source_version.content_hash
+        )
 
 
 class ApprovedFact(models.Model):

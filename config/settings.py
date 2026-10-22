@@ -1,5 +1,6 @@
 """Environment-based Django settings for the Phase 0 foundation."""
 import os
+import json
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -101,6 +102,42 @@ DATABASES = {
     }
 }
 
+
+def configured_limit(name, default, maximum):
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ImproperlyConfigured(f"{name} must be an integer.") from exc
+    if value < 1 or value > maximum:
+        raise ImproperlyConfigured(f"{name} must be between 1 and {maximum}.")
+    return value
+
+
+BRAND_DOCUMENT_MAX_UPLOAD_BYTES = configured_limit(
+    "BRAND_DOCUMENT_MAX_UPLOAD_BYTES", 5 * 1024 * 1024, 5 * 1024 * 1024
+)
+BRAND_DOCUMENT_MAX_PDF_PAGES = configured_limit("BRAND_DOCUMENT_MAX_PDF_PAGES", 10, 10)
+BRAND_DOCUMENT_MAX_EXTRACTED_CHARS = configured_limit(
+    "BRAND_DOCUMENT_MAX_EXTRACTED_CHARS", 80_000, 80_000
+)
+PRIVATE_DOCUMENT_ROOT = Path(
+    os.environ.get("PRIVATE_DOCUMENT_ROOT", BASE_DIR / "private_uploads")
+).resolve()
+PRIVATE_DOCUMENT_STORAGE_BACKEND = os.environ.get(
+    "PRIVATE_DOCUMENT_STORAGE_BACKEND", "django.core.files.storage.FileSystemStorage"
+).strip()
+try:
+    PRIVATE_DOCUMENT_STORAGE_OPTIONS = json.loads(
+        os.environ.get("PRIVATE_DOCUMENT_STORAGE_OPTIONS", "{}")
+    )
+except json.JSONDecodeError as exc:
+    raise ImproperlyConfigured("PRIVATE_DOCUMENT_STORAGE_OPTIONS must be a JSON object.") from exc
+if not isinstance(PRIVATE_DOCUMENT_STORAGE_OPTIONS, dict):
+    raise ImproperlyConfigured("PRIVATE_DOCUMENT_STORAGE_OPTIONS must be a JSON object.")
+if PRIVATE_DOCUMENT_STORAGE_BACKEND == "django.core.files.storage.FileSystemStorage":
+    PRIVATE_DOCUMENT_STORAGE_OPTIONS.setdefault("location", str(PRIVATE_DOCUMENT_ROOT))
+    PRIVATE_DOCUMENT_STORAGE_OPTIONS.setdefault("base_url", "/private-documents-not-served/")
+
 AUTHENTICATION_BACKENDS = ["accounts.backends.UsernameOrEmailBackend"]
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "app:home"
@@ -122,6 +159,14 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = []
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "private_documents": {
+        "BACKEND": PRIVATE_DOCUMENT_STORAGE_BACKEND,
+        "OPTIONS": PRIVATE_DOCUMENT_STORAGE_OPTIONS,
+    },
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Conservative defaults; a deployment should enforce HTTPS and set its host list.

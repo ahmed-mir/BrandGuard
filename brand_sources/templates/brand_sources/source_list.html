@@ -5,7 +5,7 @@
     <p class="eyebrow"><span class="eyebrow__line"></span>APPROVED GUIDANCE, WITH PROVENANCE</p>
     <p class="brand-page-intro__copy">A workspace library of authoritative guidelines, product facts and policies. Published versions preserve their text and evidence.</p>
   </div>
-  {% if can_manage_sources %}<a class="button button--primary" href="{% url 'app:brand_sources:create' %}">Add a source <span aria-hidden="true">＋</span></a>{% endif %}
+  {% if can_manage_sources %}<div class="brand-source-actions"><a class="button button--secondary" href="{% url 'app:brand_sources:import' %}">Import document</a><a class="button button--primary" href="{% url 'app:brand_sources:create' %}">Add a source <span aria-hidden="true">＋</span></a></div>{% endif %}
 </section>
 
 <section class="brand-library" aria-labelledby="source-library-heading">

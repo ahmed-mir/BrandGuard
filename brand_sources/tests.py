@@ -1,6 +1,8 @@
 import hashlib
 import io
 import secrets
+import zipfile
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -8,12 +10,25 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.core.files.storage import storages
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError
 
 from workspaces.models import Workspace, WorkspaceMembership
 
 from .demo import LUMADESK_SOURCE_PACK
-from .models import ApprovedFact, BrandRule, BrandSource, SourceVersion, policy_snapshot_hash
-from .services import active_policy_versions, approve_source_version, create_draft_version, create_source, policy_snapshot
+from .ingestion import DocumentImportError, extract_uploaded_document
+from .models import ApprovedFact, BrandDocumentImport, BrandRule, BrandSource, SourceVersion, policy_snapshot_hash
+from .services import (
+    DocumentImportPersistenceError,
+    active_policy_versions,
+    approve_source_version,
+    confirm_imported_text,
+    create_draft_version,
+    create_source,
+    import_source_document,
+    policy_snapshot,
+)
 
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
@@ -418,3 +433,274 @@ class BrandDemoSeedTests(TestCase):
         self.assertEqual(workspace.brand_sources.count(), 1)
         self.assertEqual(workspace.brand_sources.get().title, "Manager source")
 
+
+def _synthetic_pdf(pages):
+    """Build a small text PDF fixture without an extra test dependency."""
+    encoded_pages = []
+    for text in pages:
+        escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        encoded_pages.append(f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("latin-1"))
+    font_id = 3 + len(pages) * 2
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>"]
+    page_ids = [3 + index * 2 for index in range(len(pages))]
+    kids = b" ".join(f"{page_id} 0 R".encode("ascii") for page_id in page_ids)
+    objects.append(b"<< /Type /Pages /Kids [" + kids + f"] /Count {len(pages)} >>".encode("ascii"))
+    for index, content in enumerate(encoded_pages):
+        page_id = page_ids[index]
+        content_id = page_id + 1
+        page = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ".encode("ascii")
+            + f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>".encode("ascii")
+        )
+        objects.extend([page, b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream"])
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{index} 0 obj\n".encode("ascii") + obj + b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    output.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    output.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(output)
+
+
+@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
+class BrandDocumentImportWorkflowTests(TestCase):
+    source_text = "Official product name: LumaDesk. Internal pilot: up to 20% faster task completion; results vary."
+
+    def setUp(self):
+        self.workspace = Workspace.objects.create(name="LumaDesk", slug="document-import-test")
+        self.manager = self._member("import_manager", WorkspaceMembership.Role.BRAND_MANAGER)
+        self.admin = self._member("import_admin", WorkspaceMembership.Role.ADMIN)
+        self.creator = self._member("import_creator", WorkspaceMembership.Role.CREATOR)
+        self.reviewer = self._member("import_reviewer", WorkspaceMembership.Role.REVIEWER)
+
+    def tearDown(self):
+        storage = storages["private_documents"]
+        for name in BrandDocumentImport.objects.values_list("original_document", flat=True):
+            if name:
+                storage.delete(name)
+        super().tearDown()
+
+    def _member(self, username, role, workspace=None):
+        user = get_user_model().objects.create_user(
+            username=username,
+            email=f"{username}@example.test",
+            password=secrets.token_urlsafe(24),
+        )
+        WorkspaceMembership.objects.create(user=user, workspace=workspace or self.workspace, role=role)
+        return user
+
+    def _upload(self, name="guide.txt", content=None, content_type="application/octet-stream"):
+        return SimpleUploadedFile(name, content if content is not None else self.source_text.encode("utf-8"), content_type)
+
+    def _import(self, *, owner=None, upload=None):
+        return import_source_document(
+            workspace=self.workspace,
+            owner=owner or self.manager,
+            title="LumaDesk source",
+            source_type=BrandSource.SourceType.GUIDELINES,
+            description="Synthetic import fixture.",
+            upload=upload or self._upload(),
+        )
+
+    def test_txt_import_creates_a_real_draft_and_private_provenance(self):
+        raw = b"\xef\xbb\xbf" + self.source_text.encode("utf-8")
+        source, version, record = self._import(upload=self._upload("..\\brand-guide.txt", raw, "text/plain"))
+        self.assertEqual(source.workspace, self.workspace)
+        self.assertEqual(version.status, SourceVersion.Status.DRAFT)
+        self.assertEqual(version.source_text, self.source_text)
+        self.assertEqual(record.document_type, BrandDocumentImport.DocumentType.TXT)
+        self.assertEqual(record.original_filename, "brand-guide.txt")
+        self.assertEqual(record.file_sha256, hashlib.sha256(raw).hexdigest())
+        self.assertTrue(record.original_document.name.startswith(f"brand-source-imports/{self.workspace.pk}/"))
+        self.assertNotIn("brand-guide", record.original_document.name)
+        self.assertFalse(record.text_is_confirmed)
+
+    def test_docx_extracts_paragraphs_and_table_text_in_document_order(self):
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Official naming: LumaDesk.")
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Pilot result"
+        table.cell(0, 1).text = "Up to 20% faster; results vary."
+        buffer = io.BytesIO()
+        document.save(buffer)
+        extracted = extract_uploaded_document(self._upload("guide.docx", buffer.getvalue()))
+        self.assertEqual(extracted.document_type, "DOCX")
+        self.assertEqual(extracted.text, "Official naming: LumaDesk.\nPilot result\tUp to 20% faster; results vary.")
+
+    def test_text_pdf_extracts_page_text_and_preserves_page_boundary(self):
+        pdf = _synthetic_pdf(["LumaDesk is the official name.", "Results vary; see the internal pilot."])
+        extracted = extract_uploaded_document(self._upload("guide.pdf", pdf))
+        self.assertEqual(extracted.document_type, "PDF")
+        self.assertEqual(extracted.page_count, 2)
+        self.assertIn("LumaDesk is the official name.", extracted.text)
+        self.assertIn("\n\n", extracted.text)
+
+    def test_upload_endpoint_creates_draft_and_confirms_manager_or_admin_access(self):
+        for user in (self.manager, self.admin):
+            self.client.force_login(user)
+            response = self.client.get(reverse("app:brand_sources:import"))
+            self.assertEqual(response.status_code, 200)
+        self.client.force_login(self.manager)
+        response = self.client.post(reverse("app:brand_sources:import"), {
+            "title": "Uploaded guide", "source_type": BrandSource.SourceType.GUIDELINES,
+            "description": "Imported from a synthetic fixture.", "document": self._upload(),
+        })
+        source = BrandSource.objects.get(title="Uploaded guide")
+        version = source.versions.get()
+        target = reverse("app:brand_sources:version_edit", args=[source.pk, version.version_number])
+        self.assertRedirects(response, target, fetch_redirect_response=False)
+        self.assertEqual(version.status, SourceVersion.Status.DRAFT)
+        self.assertContains(self.client.get(target), "Document text extracted. Review and confirm the content before publishing.")
+
+    def test_creator_and_reviewer_cannot_import(self):
+        for user in (self.creator, self.reviewer):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(reverse("app:brand_sources:import")).status_code, 403)
+            self.assertEqual(self.client.post(reverse("app:brand_sources:import"), {}).status_code, 403)
+
+    def test_file_errors_are_rejected_without_creating_policy_records(self):
+        bad_uploads = [
+            self._upload("guide.rtf", b"some text"),
+            self._upload("guide.txt", b"\xff\xfe not utf8"),
+            self._upload("guide.docx", b"not a zip"),
+            self._upload("guide.txt", b"%PDF-1.4 wrong extension"),
+            self._upload("guide.pdf", _synthetic_pdf([""])),
+            self._upload("guide.pdf", b"%PDF-1.4 malformed"),
+        ]
+        for upload in bad_uploads:
+            with self.subTest(filename=upload.name), self.assertRaises(DocumentImportError):
+                self._import(upload=upload)
+        self.assertEqual(BrandSource.objects.count(), 0)
+        self.assertEqual(BrandDocumentImport.objects.count(), 0)
+
+    def test_upload_size_limit_is_enforced_by_extractor(self):
+        with self.assertRaisesMessage(DocumentImportError, "5 MB upload limit"):
+            self._import(upload=self._upload("guide.txt", b"x" * (5 * 1024 * 1024 + 1)))
+
+    def test_docx_expansion_limits_and_pdf_page_limit_are_enforced(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", "x")
+            archive.writestr("word/document.xml", "a" * (10 * 1024 * 1024 + 1))
+        with self.assertRaisesMessage(DocumentImportError, "safe processing limit"):
+            extract_uploaded_document(self._upload("guide.docx", buffer.getvalue()))
+        with self.assertRaisesMessage(DocumentImportError, "limit is 10"):
+            extract_uploaded_document(self._upload("guide.pdf", _synthetic_pdf(["Page"] * 11)))
+
+    def test_password_protected_pdf_is_rejected(self):
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.encrypt("synthetic-password")
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        with self.assertRaisesMessage(DocumentImportError, "Password-protected PDFs are not supported"):
+            extract_uploaded_document(self._upload("locked.pdf", buffer.getvalue()))
+
+    def test_confirmation_is_required_and_editing_invalidates_it_before_publish(self):
+        source, version, record = self._import()
+        with self.assertRaisesMessage(ValidationError, "confirm its current version"):
+            approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
+        self.client.force_login(self.manager)
+        edit_url = reverse("app:brand_sources:version_edit", args=[source.pk, 1])
+        response = self.client.post(edit_url, {"source_text": self.source_text + " Corrected.", "effective_date": ""})
+        self.assertRedirects(response, edit_url)
+        record.refresh_from_db()
+        self.assertFalse(record.text_is_confirmed)
+        version.refresh_from_db()
+        confirm_url = reverse("app:brand_sources:confirm_import", args=[source.pk, 1])
+        self.client.post(confirm_url, {"confirm_text": "on"})
+        record.refresh_from_db()
+        self.assertTrue(record.text_is_confirmed)
+        approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
+        version.refresh_from_db()
+        self.assertEqual(version.status, SourceVersion.Status.APPROVED)
+
+    def test_confirmation_is_post_only_and_cross_workspace_import_is_not_found(self):
+        source, version, _ = self._import()
+        self.client.force_login(self.manager)
+        confirm_url = reverse("app:brand_sources:confirm_import", args=[source.pk, 1])
+        self.assertEqual(self.client.get(confirm_url).status_code, 405)
+        other_workspace = Workspace.objects.create(name="Other", slug="other-import-workspace")
+        other_manager = self._member("other_import_manager", WorkspaceMembership.Role.BRAND_MANAGER, other_workspace)
+        self.client.force_login(other_manager)
+        self.assertEqual(self.client.post(confirm_url, {"confirm_text": "on"}).status_code, 404)
+        self.assertEqual(BrandSource.objects.count(), 1)
+
+    def test_confirmation_and_approval_publish_the_same_version_to_policy_snapshot(self):
+        source, version, record = self._import()
+        policy_before = policy_snapshot(self.workspace)
+        confirm_imported_text(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
+        approved = approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
+        self.workspace.refresh_from_db()
+        record.refresh_from_db()
+        policy_after = policy_snapshot(self.workspace)
+        self.assertEqual(approved.pk, version.pk)
+        self.assertNotEqual(policy_before["hash"], policy_after["hash"])
+        self.assertEqual(policy_after["revision"], policy_before["revision"] + 1)
+        self.assertEqual(list(active_policy_versions(self.workspace).values_list("pk", flat=True)), [version.pk])
+        self.assertTrue(record.text_is_confirmed)
+
+    def test_imported_rule_and_fact_use_existing_evidence_validation(self):
+        source, version, _ = self._import()
+        fact = ApprovedFact(
+            source_version=version, identifier="FACT-02", subject="Task completion speed",
+            statement="Up to 20% faster task completion; results vary.",
+            comparison_operator=ApprovedFact.ComparisonOperator.UP_TO, comparison_value=Decimal("20"),
+            comparison_unit="%", evidence_excerpt="up to 20% faster task completion; results vary.",
+        )
+        fact.full_clean()
+        fact.save()
+        bad_rule = BrandRule(
+            source_version=version, identifier="TERM-02", category=BrandRule.Category.TERMINOLOGY,
+            severity=BrandRule.Severity.HIGH, description="Use LumaDesk.",
+            rule_type=BrandRule.RuleType.PROHIBITED_TERM,
+            matcher_data={"type": "PROHIBITED_TERM", "term": "Luma Desk", "case_sensitive": False, "scope": "ALL"},
+            evidence_excerpt="This passage does not occur.",
+        )
+        with self.assertRaises(ValidationError):
+            bad_rule.full_clean()
+        self.assertEqual(source.workspace_id, version.source.workspace_id)
+
+    def test_malformed_text_no_text_and_extracted_character_limit_are_rejected(self):
+        with self.assertRaisesMessage(DocumentImportError, "No meaningful text"):
+            extract_uploaded_document(self._upload("empty.txt", b" \n\t"))
+        with override_settings(BRAND_DOCUMENT_MAX_EXTRACTED_CHARS=16):
+            with self.assertRaisesMessage(DocumentImportError, "character limit"):
+                extract_uploaded_document(self._upload("long.txt", self.source_text.encode()))
+
+    def test_database_failure_rolls_back_source_and_removes_private_file(self):
+        from unittest.mock import patch
+
+        with patch("brand_sources.services.BrandDocumentImport.save", side_effect=IntegrityError("synthetic failure")):
+            with self.assertRaises(DocumentImportPersistenceError):
+                self._import()
+        self.assertEqual(BrandSource.objects.count(), 0)
+        self.assertEqual(BrandDocumentImport.objects.count(), 0)
+        storage = storages["private_documents"]
+        try:
+            _, files = storage.listdir(f"brand-source-imports/{self.workspace.pk}")
+        except FileNotFoundError:
+            files = []
+        self.assertEqual(files, [])
+
+    def test_private_storage_failure_returns_a_safe_error_without_policy_records(self):
+        from unittest.mock import patch
+
+        storage = storages["private_documents"]
+        with patch.object(storage, "save", side_effect=OSError("synthetic storage failure")):
+            with self.assertRaisesMessage(DocumentImportPersistenceError, "could not be stored safely"):
+                self._import()
+        self.assertEqual(BrandSource.objects.count(), 0)
+        self.assertEqual(BrandDocumentImport.objects.count(), 0)

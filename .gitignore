@@ -12,6 +12,7 @@ env/
 *.sqlite3-journal
 /staticfiles/
 /media/
+/private_uploads/
 .pytest_cache/
 .ruff_cache/
 .coverage

@@ -58,9 +58,27 @@ Workspace administration remains read-only. The membership list does not invite,
 | Brand manager | Yes | Yes | Yes | Yes | No |
 | Workspace admin | Yes | Yes | Yes | Yes | Existing read-only member list |
 
-## Phase 2B — source ingestion (not started)
+## Phase 2B — brand document ingestion and human verification (implemented)
 
-Add safe document uploads and text extraction with provenance and human verification. Extracted content must not become approved policy automatically.
+- Added `BrandDocumentImport`, a provenance record linked one-to-one to an actual `SourceVersion`, with workspace, uploader, timestamp, original filename, validated document type, SHA-256 of the uploaded bytes, extraction outcome, extracted character/page counts, and human confirmation metadata.
+- Managers and workspace admins can POST a new document through `/app/brand-sources/import/`. Successful imports create a normal `BrandSource`, editable `DRAFT` `SourceVersion`, and private-file provenance record; then redirect to the existing source editor. No source is automatically approved, and no rules or facts are inferred.
+- TXT supports UTF-8 and UTF-8 BOM. DOCX extracts paragraphs and tables in document order after ZIP structure, entry count, expansion size and compression checks. Text-based PDF extracts actual page text and preserves page boundaries. Browser MIME type is ignored; extension and structure/content are validated.
+- Default bounds are 5 MiB per upload, 10 PDF pages, 80,000 extracted characters, 2,048 DOCX archive members, 10 MiB per decompressed DOCX member and 20 MiB total decompressed archive content. Password-protected PDFs, malformed inputs, unsupported encodings and files with no meaningful extracted text are rejected. Scanned PDFs are not OCR'd and the UI offers manual text entry instead.
+- Original files use the `private_documents` Django storage alias and generated storage names under a local `private_uploads/` directory outside public media/static routes. There is no file-download endpoint. Deployments must configure a genuinely private storage backend and its access controls; this application does not make a public bucket private automatically.
+- Imported text is an editable draft. A separate POST confirmation stores the SHA-256 of the reviewed source text, confirmation actor and timestamp. Saving a materially changed source text changes the hash and makes that confirmation stale. `approve_source_version` blocks imported drafts unless the current text hash is confirmed, then applies the existing evidence validation, immutable approval, atomic supersession and policy revision/hash logic.
+- The policy service queries imported and manually authored sources through the same `SourceVersion`, `BrandRule` and `ApprovedFact` tables. `active_policy_versions(workspace)` and `policy_snapshot(workspace)` therefore require no parallel document-specific policy logic.
+- The PRD root document was available and read with `pypdf`; it calls for text-based DOCX/PDF extraction, 5 MB and 10-page limits, and rejects encrypted/oversize documents. The scanned-document/OCR boundary follows the PRD. No extraction-only dependency was added for reading the PRD; `pypdf` and `python-docx` are runtime requirements because the product feature uses them.
+
+### Phase 2B role access and workflow
+
+| Role | Import source | View imported drafts | Edit/confirm draft | Publish | View approved source/evidence |
+|---|---:|---:|---:|---:|---:|
+| Creator | No | No | No | No | Yes |
+| Reviewer | No | No | No | No | Yes |
+| Brand manager | Yes | Yes | Yes | Yes | Yes |
+| Workspace admin | Yes | Yes | Yes | Yes | Yes |
+
+Import and confirmation are workspace-scoped and protected by the existing server-side manager/admin decorators. Approval permission is still checked server-side; hiding a control is not treated as authorization. Source edits and approvals re-fetch/lock the draft to avoid changing an already approved version.
 
 ## Phase 3 — content submission and versioning (not started)
 
@@ -80,4 +98,4 @@ Permit export only for the approved version, then add deployment operations, mon
 
 ### Boundary
 
-Phase 0, 1A and 1B provide the product introduction and workspace/account foundation; Phase 2A adds structured, evidence-backed source authoring and publication. These phases do not include document ingestion/extraction, content submission, review execution, AI integration, review findings, content approval decisions, audit-event subsystem, activity data or export. Current routes and limits are documented in the README.
+Phases 0 through 2B provide the product introduction, workspace/account foundation, authored policy and verified text extraction. Phase 2B does not include upload replacements to existing sources, authorized source-document downloads, OCR, external AI, image/poster analysis, content submission, review execution, findings, creator revision, content approval decisions, audit-event subsystem, activity data or export. Current routes, storage assumptions and limits are documented in the README.

@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -9,9 +10,10 @@ from workspaces.models import WorkspaceMembership
 from workspaces.page_context import app_page_context
 from workspaces.permissions import workspace_member_required, workspace_role_required
 
-from .forms import ApprovedFactForm, BrandRuleForm, BrandSourceCreateForm, SourceVersionForm
-from .models import ApprovedFact, BrandRule, BrandSource, SourceVersion
-from .services import approve_source_version, create_draft_version, create_source
+from .forms import ApprovedFactForm, BrandDocumentImportForm, BrandRuleForm, BrandSourceCreateForm, ImportedTextConfirmationForm, SourceVersionForm
+from .ingestion import DocumentImportError
+from .models import ApprovedFact, BrandDocumentImport, BrandRule, BrandSource, SourceVersion
+from .services import DocumentImportPersistenceError, approve_source_version, confirm_imported_text, create_draft_version, create_source, import_source_document
 
 
 MANAGER_ROLES = (WorkspaceMembership.Role.BRAND_MANAGER, WorkspaceMembership.Role.ADMIN)
@@ -123,6 +125,30 @@ def source_create(request):
     return render(request, "brand_sources/source_create.html", _context(request, "New brand source", extra={"form": form}))
 
 
+@require_http_methods(["GET", "POST"])
+@workspace_role_required(*MANAGER_ROLES)
+def document_import(request):
+    form = BrandDocumentImportForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            source, version, document_import_record = import_source_document(
+                workspace=request.workspace,
+                owner=request.user,
+                title=form.cleaned_data["title"],
+                source_type=form.cleaned_data["source_type"],
+                description=form.cleaned_data["description"],
+                upload=form.cleaned_data["document"],
+            )
+        except DocumentImportError as exc:
+            form.add_error("document", str(exc))
+        except DocumentImportPersistenceError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Document text extracted. Review and confirm the content before publishing.")
+            return redirect("app:brand_sources:version_edit", source_id=source.pk, version_number=version.version_number)
+    return render(request, "brand_sources/document_import.html", _context(request, "Import a brand document", extra={"form": form}))
+
+
 @require_GET
 @workspace_member_required
 def source_detail(request, source_id):
@@ -145,6 +171,7 @@ def source_version_detail(request, source_id, version_number):
     version = _version(request, source_id, version_number)
     facts = version.facts.all()
     rules = version.rules.select_related("approved_fact").all()
+    document_import_record = BrandDocumentImport.objects.filter(source_version=version, workspace_id=request.workspace.pk).select_related("uploaded_by", "confirmed_by").first()
     context = _context(request, f"{source.title} · v{version.version_number}", extra={
         "source": source,
         "version": version,
@@ -153,6 +180,7 @@ def source_version_detail(request, source_id, version_number):
         ).order_by("-version_number") if not _is_manager(request) else source.versions.select_related("approved_by").order_by("-version_number"),
         "rules": rules,
         "facts": facts,
+        "document_import": document_import_record,
     })
     return render(request, "brand_sources/source_version_detail.html", context)
 
@@ -201,17 +229,48 @@ def source_version_edit(request, source_id, version_number):
         raise PermissionDenied("Approved source versions cannot be edited. Create a new draft version.")
     form = SourceVersionForm(request.POST or None, instance=version)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        source.save(update_fields=["updated_at"])
-        messages.success(request, f"Draft version {version.version_number} saved.")
-        return redirect("app:brand_sources:version_edit", source_id=source.pk, version_number=version.version_number)
+        with transaction.atomic():
+            version = get_object_or_404(
+                SourceVersion.objects.select_for_update(),
+                source=source,
+                version_number=version_number,
+            )
+            if version.status != SourceVersion.Status.DRAFT:
+                raise PermissionDenied("Approved source versions cannot be edited. Create a new draft version.")
+            form = SourceVersionForm(request.POST, instance=version)
+            if form.is_valid():
+                form.save()
+                source.save(update_fields=["updated_at"])
+                messages.success(request, f"Draft version {version.version_number} saved.")
+                return redirect("app:brand_sources:version_edit", source_id=source.pk, version_number=version.version_number)
     return render(request, "brand_sources/version_edit.html", _context(request, f"Edit {source.title} · v{version.version_number}", extra={
         "source": source,
         "version": version,
         "form": form,
         "rules": version.rules.select_related("approved_fact").all(),
         "facts": version.facts.all(),
+        "document_import": BrandDocumentImport.objects.filter(source_version=version, workspace_id=request.workspace.pk).select_related("uploaded_by", "confirmed_by").first(),
     }))
+
+
+@require_POST
+@workspace_role_required(*MANAGER_ROLES)
+def source_version_confirm_import(request, source_id, version_number):
+    form = ImportedTextConfirmationForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Review the saved source text and confirm it before publishing.")
+        return redirect("app:brand_sources:version_edit", source_id=source_id, version_number=version_number)
+    try:
+        confirmed = confirm_imported_text(
+            source_id=source_id,
+            version_number=version_number,
+            workspace=request.workspace,
+            actor=request.user,
+        )
+    except SourceVersion.DoesNotExist:
+        raise Http404
+    messages.success(request, "Extracted source text confirmed. You can now add policy entries and publish this version.")
+    return redirect("app:brand_sources:version_edit", source_id=confirmed.source_version.source_id, version_number=confirmed.source_version.version_number)
 
 
 @require_POST

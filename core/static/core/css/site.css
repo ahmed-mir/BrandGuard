@@ -474,3 +474,48 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
   .version-provenance { display: grid; grid-template-columns: minmax(0,1fr); }
   .version-callout { align-items: start; flex-direction: column; }
 }
+
+/* Phase 2B: private document intake, provenance, and explicit text confirmation. */
+.brand-source-actions { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
+.document-import-heading { margin-bottom: 1.6rem; }
+.document-import-heading > div > p:last-child { max-width: 700px; }
+.document-import-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(220px,280px); align-items: start; gap: clamp(1.5rem,4vw,3rem); }
+.document-import-form { min-width: 0; max-width: none; }
+.document-import-form .source-form-section { min-width: 0; }
+.document-file-field input[type="file"] { width: 100%; min-height: 48px; padding: .55rem; border: 1px solid var(--border-dark); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font-size: .78rem; }
+.document-file-field input[type="file"]::file-selector-button { min-height: 34px; margin-right: .7rem; padding: .4rem .65rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); font: 600 .72rem var(--sans); cursor: pointer; }
+.document-limit-list { display: grid; gap: .45rem; margin: .25rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.document-import-note { position: sticky; top: 1.5rem; padding: 1rem 0 0; border-top: 1px solid var(--border-dark); }
+.document-import-note .eyebrow { margin-bottom: .8rem; }
+.document-import-note ol { display: grid; gap: .8rem; margin: 0; padding: 0; list-style: none; counter-reset: import-steps; }
+.document-import-note li { display: grid; grid-template-columns: 1fr; gap: .12rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); counter-increment: import-steps; }
+.document-import-note li strong { font-size: .77rem; }
+.document-import-note li span { color: var(--muted); font-size: .69rem; line-height: 1.55; }
+.document-provenance { margin: 1.8rem 0 2rem; padding: 1.1rem 0 1.2rem; border-block: 1px solid var(--border-dark); }
+.document-provenance .source-section-heading { align-items: center; }
+.document-provenance .source-section-heading .eyebrow { margin-bottom: .45rem; }
+.document-provenance .source-section-heading h2, .document-provenance .source-section-heading h3 { margin: 0; font-size: .98rem; }
+.document-provenance__grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .85rem 1rem; margin: 1rem 0; }
+.document-provenance__grid div { min-width: 0; }
+.document-provenance__grid dt { color: var(--muted); font: 500 .57rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.document-provenance__grid dd { margin: .2rem 0 0; overflow-wrap: anywhere; color: var(--ink-soft); font-size: .72rem; }
+.document-provenance__grid code { color: var(--ink-soft); font: .63rem var(--mono); overflow-wrap: anywhere; }
+.document-confirmation-state { margin: .75rem 0; color: var(--ink-soft); font-size: .74rem; line-height: 1.6; }
+.document-confirmation-form { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .85rem; padding-top: .85rem; border-top: 1px solid var(--border); }
+.document-confirmation-form label { display: flex; align-items: flex-start; gap: .55rem; max-width: 650px; color: var(--ink-soft); font-size: .75rem; line-height: 1.55; }
+.document-confirmation-form input { width: 17px; height: 17px; flex: 0 0 auto; margin-top: .12rem; accent-color: var(--teal); }
+.document-provenance--detail { margin-top: 1.7rem; }
+@media (max-width: 800px) {
+  .document-import-layout { grid-template-columns: minmax(0,1fr); }
+  .document-import-note { position: static; }
+  .document-import-note ol { grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6rem 1.2rem; }
+  .document-provenance__grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 620px) {
+  .brand-source-actions { width: 100%; }
+  .brand-source-actions .button { width: 100%; }
+  .document-import-note ol { grid-template-columns: minmax(0,1fr); }
+  .document-provenance__grid { grid-template-columns: minmax(0,1fr); gap: .7rem; }
+  .document-confirmation-form { align-items: stretch; flex-direction: column; }
+  .document-confirmation-form .button { width: 100%; }
+}

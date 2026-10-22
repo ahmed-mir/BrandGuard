@@ -66,3 +66,11 @@ The landing-page preview uses synthetic LumaDesk content and is labeled as illus
 - Show real source/version state and useful empty guidance. Do not add review counts, compliance charts, false “verified” indicators, or AI status. Effective date metadata must not be labeled as expiration enforcement.
 - Use `.brand-*`, `.source-*`, `.published-*`, `.evidence-quote` and `.source-status` component families already added to `site.css`; extend existing tokens and focus states rather than introducing page-specific palette values.
 - When a policy version is published, the workspace revision and deterministic hash refer to the active approved set. Future review UI should display a pinned historical snapshot only from a review record, not recompute a past review against today's policy.
+
+## Document import and confirmation (Phase 2B)
+
+- Keep the import view a focused metadata form: title, source type, optional description, and a plainly labelled file input. State the actual limits and supported formats adjacent to the input; do not use invented processing bars or scan animations for synchronous extraction.
+- Use the existing source editor to review extracted text. Keep source text editable while draft; show provenance (original filename, type, uploader, timestamp, extraction result, hash) as read-only metadata. Display imported text as normal escaped form/content output; never mark user-provided source text safe HTML.
+- Confirmation is a separate, explicit, CSRF-protected POST after the manager has inspected and saved the current text. Use text plus a semantic state label to show whether confirmation is current or stale; a stale confirmation requires an action before publishing. Avoid presenting extraction as verification of facts.
+- The original document is private provenance, not a public download link. Do not expose storage URLs or path values in templates. Communicate that scanned-PDF OCR is unavailable and provide the existing manual-authoring route instead.
+- Continue using the established `.source-*`, `.document-*`, `.form-field` and `.button` classes and semantic tokens. Keep the provenance definition list compact, allow hashes to wrap, and stack form/provenance layouts below tablet width without page-level overflow.

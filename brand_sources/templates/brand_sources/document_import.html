@@ -1,0 +1,28 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="source-detail-topline"><a class="text-link" href="{% url 'app:brand_sources:list' %}">← Brand sources</a><span class="source-type-label">Private document import</span></div>
+<section class="source-detail-heading document-import-heading">
+  <div><p class="eyebrow"><span class="eyebrow__line"></span>TEXT EXTRACTION · HUMAN REVIEW REQUIRED</p><h2>Import a brand document</h2><p>Extract readable text into a new draft source. You will review and confirm the text before this version can be published.</p></div>
+</section>
+
+<section class="document-import-layout" aria-label="Document import requirements and form">
+  <form method="post" enctype="multipart/form-data" class="source-form document-import-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="source-form-section" aria-labelledby="document-details-heading">
+      <div class="source-form-section__heading"><span class="mono">01</span><div><h2 id="document-details-heading">Source details</h2><p>Choose how this authoritative material will appear in your workspace library.</p></div></div>
+      {% for field in form %}{% if field.name != "document" %}<div class="form-field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<p class="field__hint">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}</div>{% endif %}{% endfor %}
+    </section>
+    <section class="source-form-section" aria-labelledby="document-file-heading">
+      <div class="source-form-section__heading"><span class="mono">02</span><div><h2 id="document-file-heading">Select the original document</h2><p>The original is retained in private storage for provenance. It is not exposed through a public media URL.</p></div></div>
+      <div class="form-field document-file-field">{{ form.document.label_tag }}{{ form.document }}{% if form.document.help_text %}<p class="field__hint">{{ form.document.help_text }}</p>{% endif %}{% for error in form.document.errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}</div>
+      <ul class="document-limit-list"><li>TXT saved as UTF-8 or UTF-8 with BOM</li><li>DOCX paragraphs and table text</li><li>Text-based PDF, up to 10 pages</li><li>Maximum upload size 5 MB; extracted text maximum 80,000 characters</li><li>Scanned PDFs require OCR, which is not supported. Enter their text manually instead.</li></ul>
+    </section>
+    <div class="source-form-actions"><button class="button button--primary" type="submit">Extract text and create draft <span aria-hidden="true">→</span></button><a class="text-link" href="{% url 'app:brand_sources:list' %}">Cancel</a></div>
+  </form>
+  <aside class="document-import-note" aria-label="What happens after upload">
+    <p class="eyebrow"><span class="eyebrow__line"></span>AFTER EXTRACTION</p>
+    <ol><li><strong>Review</strong><span>Correct the editable source text if extraction needs cleanup.</span></li><li><strong>Confirm</strong><span>Explicitly confirm the saved text is suitable as an authoritative source.</span></li><li><strong>Structure</strong><span>Add rules and facts with exact evidence from this version.</span></li><li><strong>Publish</strong><span>Approve through the existing source workflow. Import never approves automatically.</span></li></ol>
+  </aside>
+</section>
+{% endblock %}
