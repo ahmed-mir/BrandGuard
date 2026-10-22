@@ -1,4 +1,6 @@
 """Version- and policy-bound human approval workflow services."""
+import hashlib
+
 from django.core.exceptions import ValidationError
 from functools import wraps
 
@@ -172,7 +174,12 @@ def _record_decision(approval, actor, action, *, comment="", override_reason="",
 
 
 def current_valid_approval(submission):
-    """Compute whether the latest historical approval still covers current content and policy."""
+    """Compute whether the latest approval fully covers current content and policy.
+
+    This is the authorization source of truth for protected exports. In addition
+    to freshness, verify the immutable decision's links and any high-severity
+    override against the original ReviewRun findings.
+    """
     approval = (
         submission.approval_requests.filter(status=ApprovalRequest.Status.APPROVED)
         .select_related("content_version", "review_run", "decision")
@@ -180,17 +187,49 @@ def current_valid_approval(submission):
     )
     if approval is None:
         return {"valid": False, "approval": None, "decision": None, "reason": "No approved version is on record."}
+    decision = getattr(approval, "decision", None)
+    if decision is None or decision.action != ApprovalDecision.Action.APPROVED:
+        reason = "The approval has no matching persisted human approval decision."
+        return {"valid": False, "approval": approval, "decision": decision, "reason": reason}
     if approval.content_version_id != submission.current_version_id:
         reason = "Previous approval is no longer current because the content changed."
-    elif approval.content_hash != approval.content_version.content_hash or approval.decision.content_hash != approval.content_hash:
+    elif (
+        approval.content_hash != approval.content_version.content_hash
+        or decision.content_hash != approval.content_hash
+        or hashlib.sha256(approval.content_version.content_text.encode("utf-8")).hexdigest() != approval.content_hash
+    ):
         reason = "Previous approval is no longer current because the content identity changed."
+    elif (
+        approval.submission_id != submission.pk
+        or approval.workspace_id != submission.workspace_id
+        or approval.review_run.workspace_id != submission.workspace_id
+        or approval.review_run.content_version_id != approval.content_version_id
+        or approval.policy_revision != approval.review_run.policy_revision
+        or approval.policy_snapshot_hash != approval.review_run.policy_snapshot_hash
+        or approval.policy_snapshot != approval.review_run.policy_snapshot
+        or decision.policy_revision != approval.policy_revision
+        or decision.policy_snapshot_hash != approval.policy_snapshot_hash
+        or decision.policy_snapshot != approval.policy_snapshot
+    ):
+        reason = "The approval, decision and review do not share one exact content and policy identity."
+    elif (
+        approval.status != ApprovalRequest.Status.APPROVED
+        or not _review_is_complete(approval.review_run)
+        or approval.review_run.completed_at is None
+    ):
+        reason = "The historical approval is missing a complete review for the exact version."
     elif policy_snapshot(Workspace.objects.get(pk=submission.workspace_id)) != approval.policy_snapshot:
         reason = "Previous approval is no longer current because the content or approved brand policy changed."
-    elif approval.review_run.content_version_id != approval.content_version_id or not _review_is_complete(approval.review_run):
-        reason = "The historical approval is missing a complete review for the exact version."
     else:
-        return {"valid": True, "approval": approval, "decision": approval.decision, "reason": "This exact version remains approved against the current policy."}
-    return {"valid": False, "approval": approval, "decision": approval.decision, "reason": reason}
+        open_high_ids = list(approval.review_run.findings.filter(
+            rule__severity="HIGH", resolution_status="OPEN"
+        ).order_by("id").values_list("id", flat=True))
+        expected_override_ids = [str(item) for item in open_high_ids] if decision.override_reason.strip() else []
+        if (open_high_ids and len(decision.override_reason.strip()) < 10) or decision.overridden_finding_ids != expected_override_ids:
+            reason = "The recorded high-severity override no longer matches the original review findings."
+        else:
+            return {"valid": True, "approval": approval, "decision": decision, "reason": "This exact version remains approved against the current policy."}
+    return {"valid": False, "approval": approval, "decision": decision, "reason": reason}
 
 
 def submission_workflow_status(submission):

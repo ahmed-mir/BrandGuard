@@ -115,7 +115,7 @@ Only pasted text is supported. There are no later content revisions, creator iss
 - Reviewers and workspace admins access `/app/approvals/`. Workspace members can inspect a request if otherwise permitted; creators only see requests for their own submissions. Brand managers may inspect workspace review/request detail but cannot open the inbox or decide. Only reviewer/admin roles can request changes or approve. The content creator cannot review their own submission even if assigned reviewer/admin access.
 - Requesting changes requires a useful comment and records reviewer and time. The immutable decision appears in the creator's version history; another attempt requires a newer content version.
 - Approval rechecks current version/hash, complete exact review, current policy snapshot, workspace and reviewer permission inside a transaction. Unresolved high-severity findings block approval unless the reviewer provides a meaningful reason; the decision records the override and exact finding IDs while the findings remain open.
-- `approvals.services.current_valid_approval(submission)` checks historical approval against the currently pointed content version/hash and current approved policy revision/hash/source identities. It is a reusable service gate for future export; no export route is present.
+- `approvals.services.current_valid_approval(submission)` checks historical approval against the current content hash/version, complete linked review, current policy revision/hash/source identities, decision identity, and any recorded high-severity override finding IDs. Phase 4A uses this service as the export authorization source of truth.
 - PostgreSQL row locks serialize content/policy decisions. SQLite does not implement `select_for_update`; version/idempotency/request/decision uniqueness constraints prevent replacement/duplicate records, and lock contention returns a safe retry message. SQLite is not represented as a multi-writer production concurrency guarantee.
 - Added responsive revision, version comparison, creator decision-history, actual reviewer inbox and exact-version reviewer decision screens. All mutation forms use POST + CSRF and findings remain linked to original evidence.
 
@@ -134,12 +134,43 @@ Only pasted text is supported. There are no later content revisions, creator iss
 - Approval decisions are application records, not tamper-proof or externally notarized audit events. Email/in-app notification delivery is not integrated.
 - High-severity findings currently remain `OPEN` because finding resolution is not part of this phase. The reviewer may record a reasoned approval override, which does not dismiss a finding.
 - SQLite is suitable for local demonstration but does not provide PostgreSQL-equivalent row-lock concurrency. PostgreSQL needs production configuration/verification before deployment.
-- There is no marketing-content export. Any future export must call `current_valid_approval()` and reject stale or missing approvals.
+- Marketing-content export was not included in Phase 3B; it is implemented in Phase 4A.
 
-## Phase 4 — export and operational hardening (not started)
+## Phase 4A — secure approved content export and review reports (implemented)
 
-Permit export only for an explicitly approved content version, then add deployment operations, monitoring and production-specific hardening.
+- Added `content_reviews.exports` as a reusable export eligibility and report-generation service. It resolves the active server-side workspace membership, limits creators to their own submissions, scopes other authorized workspace roles to their current workspace, and re-runs `current_valid_approval()` on every export request.
+- `GET /app/reviews/<submission-id>/export/txt/` returns the exact current approved `ContentVersion.content_text` bytes as UTF-8 `text/plain`, with an ASCII slug-derived attachment name.
+- `GET /app/reviews/<submission-id>/export/pdf/` builds a private in-memory paginated ReportLab report from the approval, decision, exact content version, completed review checks, source pins, findings and verified evidence. It includes IDs and hashes for the submission, version, review, decision and policy snapshot; override reports retain their original finding, evidence, reason and reviewer.
+- Missing, pending, changes-requested, stale-content, stale-policy, invalid-snapshot, broken-evidence and unauthorized creator exports are denied. Stale or missing approval responses use HTTP 409 with a plain explanation; cross-workspace and another creator's submission are hidden with 404. Anonymous access follows the existing login redirect and workspace membership middleware.
+- Attachments are generated in memory, use `Content-Disposition: attachment`, set `Cache-Control: private, no-store`, `Pragma: no-cache`, and `X-Content-Type-Options: nosniff`. Filenames contain only a safe slug and numeric version. User text is escaped as plain text in the PDF; characters unsupported by the embedded font produce a clear 422 response, while TXT remains UTF-8.
+- Added the constrained `reportlab>=4.2,<5.0` runtime dependency. No database migration or export file storage was added.
+- The UI exposes TXT and PDF actions only when the exact viewed version has a valid current approval. Stale approvals are labelled historical and point back to the review workflow; pending and changes-requested versions have no export action.
+- Approval validity now also checks decision/review identity and that high-severity override IDs still exactly match the original open high findings. The report repeats this check and validates every exported finding against its pinned source version and evidence excerpt.
+- No event-audit subsystem was added. Application records identify the originating records, but exports are not cryptographically signed or tamper-proof.
+
+### Phase 4A export permissions
+
+| Role | Export current approval | Scope |
+|---|---:|---|
+| Creator | Yes | Own submissions only |
+| Reviewer | Yes | Current workspace |
+| Brand manager | Yes | Current workspace |
+| Workspace admin | Yes | Current workspace |
+
+Every route is GET-only and repeats authentication, active membership, workspace/owner, current approval, exact content hash, complete review, policy snapshot and evidence checks. Hiding links in the interface is not the security boundary.
+
+### Phase 4A limits and next work
+
+- Export is limited to TXT and PDF; no DOCX export, publishing, sharing links, or stored export artifacts are implemented.
+- PDF uses ReportLab's bundled Vera font for English and supported Latin characters. It fails clearly rather than silently dropping unsupported glyphs; use the UTF-8 TXT export for copy containing unsupported characters.
+- SQLite ignores `SELECT FOR UPDATE`; local tests validate behavior, not concurrent multi-writer production guarantees. Configure and concurrency-test PostgreSQL before production use.
+- There is no export event log, cryptographic signature, timestamp authority or tamper-proof approval certificate. The PDF is a generated report, not proof of authenticity.
+- Operational hardening, production deployment, monitoring, backup/retention, and broader deployment security remain not started.
 
 ### Boundary
 
-Phases 0 through 3B provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission, deterministic evidence-backed checks, immutable content revisions, and version-/policy-bound human review decisions. Phase 3B does not include campaign document uploads, AI, OCR, image/poster analysis, automatic suggestion application, tamper-proof audit events, notification delivery or export. Routes, approval semantics, storage assumptions, policy snapshot behavior and limitations are documented in the README, `docs/REVIEW_ENGINE.md` and `docs/APPROVAL_WORKFLOW.md`.
+Phases 0 through 4A provide the product introduction, workspace/account foundation, authored and human-verified brand policy, text submission, deterministic evidence-backed checks, immutable content revisions, human approval, and current-approval-protected TXT/PDF exports. Phase 4A does not add campaign document uploads, AI, OCR, image/poster analysis, automatic suggestion application, tamper-proof audit events, notifications, external publishing or deployment operations. See `docs/EXPORTS.md`, `docs/APPROVAL_WORKFLOW.md` and `docs/REVIEW_ENGINE.md` for detailed behavior and limitations.
+
+## Phase 4 — operational hardening (not started)
+
+Production deployment operations, monitoring, recovery, retention policies and production-specific hardening remain future work.

@@ -12,7 +12,7 @@ from workspaces.permissions import workspace_member_required, workspace_role_req
 
 from .forms import ApproveVersionForm, RequestChangesForm
 from .models import ApprovalRequest
-from .services import REVIEWER_ROLES, approve_version, request_changes
+from .services import REVIEWER_ROLES, approve_version, current_valid_approval, request_changes
 
 
 def _context(request, title, extra=None):
@@ -94,6 +94,16 @@ def approval_detail(request, request_id):
     for finding in findings:
         finding.source_label = f"{finding.source_version.source.title}, v{finding.source_version.version_number}"
 
+    current_approval = current_valid_approval(approval.submission)
+    can_export = (
+        current_approval["valid"]
+        and current_approval["approval"].pk == approval.pk
+        and approval.content_version_id == approval.submission.current_version_id
+    )
+    if approval.status == ApprovalRequest.Status.APPROVED and not can_export:
+        stale_reasons.append(current_approval["reason"])
+        stale = True
+
     changes_form = RequestChangesForm(request.POST if request.method == "POST" and "request_changes" in request.POST else None)
     approve_form = ApproveVersionForm(request.POST if request.method == "POST" and "approve_version" in request.POST else None)
     if request.method == "POST":
@@ -137,6 +147,8 @@ def approval_detail(request, request_id):
         "stale": stale,
         "stale_reasons": stale_reasons,
         "current_snapshot": current_snapshot,
+        "current_approval": current_approval,
+        "can_export": can_export,
         "changes_form": changes_form,
         "approve_form": approve_form,
         "decision": getattr(approval, "decision", None),

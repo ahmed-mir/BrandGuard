@@ -1,12 +1,14 @@
 from django.urls import path
 
-from . import views
+from . import export_views, views
 
 app_name = "content_reviews"
 
 urlpatterns = [
     path("", views.submission_list, name="list"),
     path("new/", views.submission_create, name="create"),
+    path("<uuid:submission_id>/export/txt/", export_views.export_approved_text, name="export_txt"),
+    path("<uuid:submission_id>/export/pdf/", export_views.export_approved_pdf, name="export_pdf"),
     path("<uuid:submission_id>/", views.submission_detail, name="detail"),
     path("<uuid:submission_id>/revise/", views.revise_submission, name="revise"),
     path("<uuid:submission_id>/submit/", views.submit_submission, name="submit"),

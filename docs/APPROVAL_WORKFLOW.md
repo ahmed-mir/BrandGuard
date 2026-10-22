@@ -1,6 +1,6 @@
 # Phase 3B: content revision and human approval
 
-This document describes the persisted workflow for revising marketing content and asking a human reviewer to decide on one exact reviewed version. Source-policy publication remains a separate operation. Approval does not imply export access; export is not implemented.
+This document describes the persisted workflow for revising marketing content and asking a human reviewer to decide on one exact reviewed version. Source-policy publication remains a separate operation. Phase 4A adds a distinct export gate: only a currently valid approval for the current content and policy can be downloaded.
 
 ## Records and identity
 
@@ -58,7 +58,7 @@ Both actions are POST-only and rely on Django CSRF middleware. The request's one
 
 ## Current approval validation
 
-`approvals.services.current_valid_approval(submission)` returns `{valid, approval, decision, reason}`. It selects the latest historical approved request and checks that its content version is still current, saved and decision hashes agree, review is complete and attached to that exact version, and request/decision snapshots still match the current workspace policy revision, hash and approved source-version identities. Callers such as a future export service must require `valid is True`; a displayed status alone is not sufficient.
+`approvals.services.current_valid_approval(submission)` returns `{valid, approval, decision, reason}`. It selects the latest historical approved request and checks that its content version is still current, the saved text recomputes to the approved SHA-256, the decision and review bind the same content and policy identity, the review is complete and attached to that exact version, the request/decision snapshots match the active workspace policy, and any high-severity override IDs still match the original open findings. Phase 4A export requests call this service every time; a displayed status alone is not sufficient.
 
 Reasons distinguish no approval, content changes, content-hash mismatch, policy changes and invalid/missing review. A new version or policy snapshot leaves every prior request, decision, review and finding intact, while making the older approval fail the current validation.
 
@@ -80,6 +80,7 @@ Every data query uses the active server-resolved workspace. Creator submission a
 - `POST /app/reviews/<submission-id>/submit/` — create an approval request for the current version and selected fresh review.
 - `GET /app/approvals/` — reviewer/admin inbox.
 - `GET/POST /app/approvals/<request-id>/` — inspect the exact request and submit a request-changes or approve decision. `GET` never performs a decision.
+- `GET /app/reviews/<submission-id>/export/txt/` and `/export/pdf/` — Phase 4A protected downloads for the current valid approved version only. See `docs/EXPORTS.md`.
 
 ## Concurrency, audit and limitations
 
@@ -87,7 +88,7 @@ On PostgreSQL, actions lock the workspace, submission and approval request rows 
 
 SQLite does not implement effective `SELECT ... FOR UPDATE`; it is a local development database, not a concurrent multi-reviewer production guarantee. Constraints prevent silent overwrite/duplicate records and lock errors prompt a retry, but PostgreSQL must be configured and concurrency-tested before production use. This project does not claim tamper-proof audit storage: application-level immutable model methods and protected records are not a substitute for external append-only audit infrastructure.
 
-There is no export yet, no notifications, no automatic correction application, no resolution/dismissal workflow for findings, and no separate multi-stage reviewer chain. No AI or universal factual verification is involved. See `docs/REVIEW_ENGINE.md` for deterministic-check limits.
+Export remains limited to the current approved version in TXT/PDF form, uses the saved records, and does not create a signature or separate export event record. There are no notifications, automatic correction application, resolution/dismissal workflow for findings, or separate multi-stage reviewer chain. No AI or universal factual verification is involved. See `docs/REVIEW_ENGINE.md` and `docs/EXPORTS.md` for limitations.
 
 ## Local Windows PowerShell commands
 

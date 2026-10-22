@@ -95,3 +95,10 @@ The landing-page preview uses synthetic LumaDesk content and is labeled as illus
 - Place decision forms after the content and findings so the reviewer can inspect the scope first. Make the approval action explicit; request-changes requires adjacent comment feedback. High-severity override copy must state that the finding remains open. Do not use an ambiguous single “Done” action.
 - The creator revision editor preloads the actual current text and explains that save creates a new immutable version and requires a fresh review. Suggested wording remains copyable; no automatic span replacement is exposed.
 - Use `.approval-*`, `.version-diff*`, `.version-history*` and existing `.review-*` component families. Reuse semantic tokens, borders and focus treatment. No new palette, modal framework, animation or visual redesign of the public landing page is needed.
+
+## Approved content exports (Phase 4A)
+
+- Show download actions only when the page is displaying the exact content version returned by `current_valid_approval()` as current. Stale approvals use an explicit warning and fresh-review guidance; pending and changes-requested states have no export controls.
+- TXT is the exact UTF-8 saved content, not a rewritten or templated variant. The PDF is a paginated record of actual submission, review, policy, finding, evidence and decision rows. It is a report, not a certificate.
+- Keep download actions visually secondary to the review/approval context and use real download links. Direct URL access repeats every permission and freshness check.
+- Export-denial pages explain that a current human approval and policy snapshot are required. Do not use disabled buttons, fake progress states, compliance scores or external file-sharing links.

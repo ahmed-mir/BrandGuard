@@ -524,6 +524,16 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 .approval-status-banner strong { color: var(--ink); font-size: .76rem; }
 .approval-status-banner p { margin: .2rem 0 .45rem; color: var(--ink-soft); font-size: .7rem; line-height: 1.55; }
 .approval-status-banner--stale { border-color: var(--amber); background: var(--amber-pale); }
+.export-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .8rem; }
+.export-actions .button { min-height: 40px; }
+.export-unavailable { max-width: 680px; margin: clamp(2rem, 8vh, 5rem) auto; padding: clamp(1.25rem, 4vw, 2.5rem); border: 1px solid var(--border); background: var(--paper); }
+.export-unavailable h2 { margin: .65rem 0; color: var(--ink); font-size: clamp(1.55rem, 3vw, 2.1rem); letter-spacing: -.035em; }
+.export-unavailable > p:not(.eyebrow) { max-width: 58ch; color: var(--ink-soft); line-height: 1.65; }
+.export-unavailable .button { margin-top: .65rem; }
+@media (max-width: 520px) {
+  .export-actions { align-items: stretch; flex-direction: column; }
+  .export-actions .button { justify-content: center; width: 100%; }
+}
 .approval-history-row { display: grid; grid-template-columns: minmax(150px,.65fr) minmax(0,1.4fr) auto; align-items: center; gap: .8rem; width: 100%; padding: .7rem .2rem; }
 .approval-history-row > div { display: grid; gap: .3rem; min-width: 0; }
 .approval-history-row > div:first-child { grid-template-columns: auto 1fr; align-items: center; }

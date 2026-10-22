@@ -1,0 +1,10 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<section class="export-unavailable" aria-labelledby="export-unavailable-title">
+  <p class="eyebrow"><span class="eyebrow__line"></span>APPROVED CONTENT EXPORT</p>
+  <h2 id="export-unavailable-title">This export is not available.</h2>
+  <p>{{ reason }}</p>
+  <p>Only the current content version with a valid human approval against the active approved policy can be exported.</p>
+  <a class="button button--secondary" href="{% url 'app:content_reviews:list' %}">Return to content reviews</a>
+</section>
+{% endblock %}
