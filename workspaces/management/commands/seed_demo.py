@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
+from brand_sources.demo import seed_lumadesk_source_pack
 from workspaces.models import Workspace, WorkspaceMembership
 
 
@@ -120,9 +121,16 @@ class Command(BaseCommand):
                 if updates:
                     membership.save(update_fields=updates)
 
+            demo_owner = user_model._default_manager.get(username="lumadesk_brand_manager")
+            source_pack = seed_lumadesk_source_pack(workspace=workspace, owner=demo_owner)
+            workspace.refresh_from_db(fields=["policy_revision", "policy_snapshot_hash"])
+
         self.stdout.write(self.style.SUCCESS(
             f"LumaDesk demo workspace ready: {workspace.name} ({workspace.slug})"
         ))
+        self.stdout.write(
+            f"  Brand source pack: {len(source_pack)} sources; policy revision {workspace.policy_revision}."
+        )
         for username, email, role, key in DEMO_ACCOUNTS:
             role_label = dict(WorkspaceMembership.Role.choices)[role]
             if username in created:

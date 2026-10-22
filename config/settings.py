@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "core.apps.CoreConfig",
     "accounts.apps.AccountsConfig",
     "workspaces.apps.WorkspacesConfig",
+    "brand_sources.apps.BrandSourcesConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

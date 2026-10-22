@@ -1,0 +1,59 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<section class="brand-page-intro" aria-label="Brand source library introduction">
+  <div>
+    <p class="eyebrow"><span class="eyebrow__line"></span>APPROVED GUIDANCE, WITH PROVENANCE</p>
+    <p class="brand-page-intro__copy">A workspace library of authoritative guidelines, product facts and policies. Published versions preserve their text and evidence.</p>
+  </div>
+  {% if can_manage_sources %}<a class="button button--primary" href="{% url 'app:brand_sources:create' %}">Add a source <span aria-hidden="true">＋</span></a>{% endif %}
+</section>
+
+<section class="brand-library" aria-labelledby="source-library-heading">
+  <div class="brand-library__toolbar">
+    <div>
+      <h2 id="source-library-heading">Source library</h2>
+      <p>{% if can_manage_sources %}Drafts are visible to source managers. Only approved versions guide creators and reviewers.{% else %}Published guidance available to your workspace.{% endif %}</p>
+    </div>
+    <form method="get" class="brand-filters" aria-label="Filter brand sources">
+      {% if can_manage_sources %}<label for="source-status">Version status</label><select id="source-status" name="status">
+        <option value="all"{% if selected_status == "all" %} selected{% endif %}>All sources</option>
+        <option value="draft"{% if selected_status == "draft" %} selected{% endif %}>Has a draft</option>
+        <option value="approved"{% if selected_status == "approved" %} selected{% endif %}>Currently approved</option>
+        <option value="superseded"{% if selected_status == "superseded" %} selected{% endif %}>Superseded history</option>
+      </select>{% endif %}
+      <label for="source-type">Source type</label><select id="source-type" name="type">
+        <option value="">All types</option>
+        {% for value, label in source_types %}<option value="{{ value }}"{% if selected_type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <button class="button button--secondary button--small" type="submit">Apply filters</button>
+    </form>
+  </div>
+
+  {% if sources %}
+    <div class="source-table-wrap">
+      <table class="source-table">
+        <thead><tr><th scope="col">Source</th><th scope="col">Type</th><th scope="col">Version status</th><th scope="col">Updated</th><th scope="col">Owner</th><th scope="col"><span class="visually-hidden">Open source</span></th></tr></thead>
+        <tbody>
+          {% for source in sources %}
+            <tr>
+              <th scope="row"><a class="source-table__title" href="{% url 'app:brand_sources:detail' source.id %}">{{ source.title }}</a>{% if source.description %}<span class="source-table__description">{{ source.description }}</span>{% endif %}</th>
+              <td><span class="source-type-label">{{ source.get_source_type_display }}</span></td>
+              <td>{% if source.list_version %}<span class="source-status source-status--{{ source.list_version.status|lower }}">{{ source.list_version.get_status_display }} <span class="mono">v{{ source.list_version.version_number }}</span></span>{% else %}<span class="source-status">No versions</span>{% endif %}</td>
+              <td><time datetime="{{ source.updated_at|date:'c' }}">{{ source.updated_at|date:"M j, Y" }}</time></td>
+              <td>{{ source.list_owner }}</td>
+              <td><a class="source-table__open" href="{% url 'app:brand_sources:detail' source.id %}">Open <span aria-hidden="true">→</span></a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="brand-empty-state">
+      <p class="eyebrow"><span class="eyebrow__line"></span>{% if can_manage_sources %}A clear place to begin{% else %}No published guidance yet{% endif %}</p>
+      <h3>{% if can_manage_sources %}No sources match these filters.{% else %}Your workspace has no approved sources yet.{% endif %}</h3>
+      <p>{% if can_manage_sources %}Create a source, add its authoritative text, then attach structured rules or approved facts before publishing.{% else %}A brand manager will publish approved guidance here. Draft material remains private to source managers.{% endif %}</p>
+      {% if can_manage_sources %}<a class="text-link" href="{% url 'app:brand_sources:create' %}">Create a brand source <span aria-hidden="true">→</span></a>{% endif %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

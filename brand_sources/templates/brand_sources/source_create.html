@@ -1,0 +1,21 @@
+{% extends "core/app_shell.html" %}
+{% block app_content %}
+<div class="source-editor-heading">
+  <div><p class="eyebrow"><span class="eyebrow__line"></span>NEW SOURCE · DRAFT V1</p><p class="source-editor-heading__copy">Create a source record and its first draft together. Nothing becomes authoritative until you publish it.</p></div>
+  <a class="text-link" href="{% url 'app:brand_sources:list' %}">Back to sources</a>
+</div>
+<form method="post" class="source-form" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  <section class="source-form-section" aria-labelledby="source-details-title">
+    <div class="source-form-section__heading"><span class="mono">01</span><div><h2 id="source-details-title">Source details</h2><p>Describe the authority and ownership for this material.</p></div></div>
+    {% for field in form %}{% if field.name != "source_text" and field.name != "effective_date" %}<div class="form-field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<p class="field__hint">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}</div>{% endif %}{% endfor %}
+  </section>
+  <section class="source-form-section" aria-labelledby="source-text-title">
+    <div class="source-form-section__heading"><span class="mono">02</span><div><h2 id="source-text-title">Authoritative text</h2><p>Paste the source content that future rules and facts will cite verbatim.</p></div></div>
+    <div class="form-field">{{ form.source_text.label_tag }}{{ form.source_text }}{% if form.source_text.help_text %}<p class="field__hint">{{ form.source_text.help_text }}</p>{% endif %}{% for error in form.source_text.errors %}<p class="form-error">{{ error }}</p>{% endfor %}</div>
+    <div class="form-field">{{ form.effective_date.label_tag }}{{ form.effective_date }}{% if form.effective_date.help_text %}<p class="field__hint">{{ form.effective_date.help_text }}</p>{% endif %}{% for error in form.effective_date.errors %}<p class="form-error">{{ error }}</p>{% endfor %}</div>
+  </section>
+  <div class="source-form-actions"><button class="button button--primary" type="submit">Save draft source <span aria-hidden="true">→</span></button><a class="text-link" href="{% url 'app:brand_sources:list' %}">Cancel</a></div>
+</form>
+{% endblock %}

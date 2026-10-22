@@ -30,6 +30,8 @@
     <p>{{ role_description }}</p>
     {% if membership.role == "ADMIN" %}
       <a class="button button--secondary" href="{% url 'app:members' %}">View workspace members <span aria-hidden="true">→</span></a>
+    {% elif membership.role == "BRAND_MANAGER" %}
+      <a class="button button--secondary" href="{% url 'app:brand_sources:list' %}">Open brand sources <span aria-hidden="true">→</span></a>
     {% else %}
       <a class="button button--secondary" href="{% url 'app:profile' %}">Review account settings <span aria-hidden="true">→</span></a>
     {% endif %}

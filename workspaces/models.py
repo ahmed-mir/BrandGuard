@@ -7,6 +7,8 @@ class Workspace(models.Model):
     slug = models.SlugField(max_length=140, unique=True)
     is_active = models.BooleanField(default=True)
     is_demo = models.BooleanField(default=False)
+    policy_revision = models.PositiveBigIntegerField(default=0)
+    policy_snapshot_hash = models.CharField(max_length=64, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

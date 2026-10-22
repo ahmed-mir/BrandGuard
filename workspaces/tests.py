@@ -213,8 +213,8 @@ class WorkspaceExperienceTests(TestCase):
                 ["Content reviews"],
             ),
             WorkspaceMembership.Role.BRAND_MANAGER: (
-                "approved brand guidelines and product facts",
-                ["Brand sources"],
+                "approved guidelines, terminology and product facts",
+                [],
             ),
             WorkspaceMembership.Role.REVIEWER: (
                 "record human decisions",
@@ -222,7 +222,7 @@ class WorkspaceExperienceTests(TestCase):
             ),
             WorkspaceMembership.Role.ADMIN: (
                 "inspect current memberships",
-                ["Brand sources"],
+                [],
             ),
         }
         for index, (role, details) in enumerate(expected.items()):
@@ -238,6 +238,7 @@ class WorkspaceExperienceTests(TestCase):
                 ]
                 self.assertEqual(parser.unavailable_text.split(), expected_unavailable)
                 expected_links = {reverse("app:home"), reverse("app:profile")}
+                expected_links.add(reverse("app:brand_sources:list"))
                 if role == WorkspaceMembership.Role.ADMIN:
                     expected_links.add(reverse("app:members"))
                 self.assertEqual(set(parser.paths), expected_links)
@@ -251,7 +252,7 @@ class WorkspaceExperienceTests(TestCase):
         parser.feed(response.content.decode())
         self.assertEqual(
             set(parser.paths),
-            {reverse("app:home"), reverse("app:profile")},
+            {reverse("app:home"), reverse("app:profile"), reverse("app:brand_sources:list")},
         )
         for path in parser.paths:
             self.assertIsNotNone(resolve(path))

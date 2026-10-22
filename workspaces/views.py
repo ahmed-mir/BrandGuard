@@ -12,8 +12,8 @@ ROLE_DESCRIPTIONS = {
         "feedback when content review becomes available."
     ),
     WorkspaceMembership.Role.BRAND_MANAGER: (
-        "Maintain approved brand guidelines and product facts that future reviews can cite. "
-        "Brand source management is not available yet."
+        "Maintain approved guidelines, terminology and product facts with evidence that future "
+        "content reviews can cite. Content review itself is not available yet."
     ),
     WorkspaceMembership.Role.REVIEWER: (
         "Review submitted versions and record human decisions when review tools become "

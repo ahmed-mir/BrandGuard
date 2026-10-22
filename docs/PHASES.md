@@ -29,7 +29,7 @@ The extracted requirements relevant to this phase call for workspace-scoped crea
 - Reworked the reusable app shell into a compact desktop sidebar with current workspace and role context, shared page headers, account identity and POST logout.
 - Added a small JavaScript mobile navigation drawer with Escape handling, focus return/trapping, a scrim, modal semantics, and a no-JavaScript navigation fallback.
 - `/app/` is the role-aware workspace overview. It uses current membership/workspace data and real dates/status, gives role-specific guidance, and labels review activity as unavailable. It has no fake counts or fabricated activity.
-- Role-specific sidebar navigation shows future Brand Sources, Content Reviews and Approval Inbox as noninteractive, explicitly unavailable labels for relevant roles. All clickable destinations resolve to implemented routes.
+- At the end of Phase 1B, future Brand Sources, Content Reviews and Approval Inbox entries were noninteractive and marked unavailable. Phase 2A makes Brand Sources a working route; Content Reviews and Approval Inbox remain unavailable until their later phases.
 - Added `/app/settings/profile/`: users may view their username, email, workspace and role; edit only first/last name; and change their password using Django's built-in `PasswordChangeForm`, validators and session hash update. Both forms are POST + CSRF protected and show success/validation feedback.
 - Added `/app/members/`: only workspace admins may access the read-only list of actual memberships in their currently resolved workspace. It includes role and active status and does not expose other workspaces.
 - All routes use server-side membership/role decorators. No self-service registration, invitation, email/username/role editing, membership mutation, review, guideline or approval function was added.
@@ -37,11 +37,30 @@ The extracted requirements relevant to this phase call for workspace-scoped crea
 
 ### Phase 1B boundaries
 
-Workspace administration remains read-only. The membership list does not invite, edit, disable or remove members; workspace metadata is displayed to admins but not edited. Account settings do not change email, username or workspace role. Future product navigation is plain, noninteractive text. Brand source management, content review, AI analysis, approval workflow, audit events and export are not implemented.
+Workspace administration remains read-only. The membership list does not invite, edit, disable or remove members; workspace metadata is displayed to admins but not edited. Account settings do not change email, username or workspace role. Phase 2A adds source-policy management while content review, AI analysis, content approvals, audit-event management and export remain deferred.
 
-## Phase 2 — approved guideline sources (not started)
+## Phase 2A — authored brand sources and policy (implemented)
 
-Define how approved brand guidance is authored, versioned, sourced and made reviewable. Any findings must cite real source material.
+- Added the `brand_sources` app with workspace-scoped `BrandSource`, immutable `SourceVersion`, structured `BrandRule`, and `ApprovedFact` records. Rules and facts retain exact excerpts from their source version; optional offsets are verified against the full source text.
+- Brand managers and workspace admins can create sources/drafts, author typed deterministic rules and facts, inspect version history, and publish a validated draft. Publication is atomic, records approver/time, and supersedes the previous approved version without erasing it. Approved and superseded source text and policy entries are immutable through model saves and application forms.
+- Every authenticated workspace role can view published guidance. Only managers/admins can see drafts or make policy changes. All detail, version, evidence and mutation queries are constrained to the server-resolved workspace.
+- The library, version detail and editor reuse the responsive application shell. `/app/brand-sources/` is integrated as a working navigation route.
+- `Workspace.policy_revision` increments on publication and `policy_snapshot_hash` stores a deterministic SHA-256 hash of the approved policy set. `active_policy_versions(workspace)` supplies the active approved versions; `policy_snapshot(workspace)` returns revision, hash and source/version IDs plus content hashes. A future review record should persist this revision/hash and the exact version IDs when the review is created, then compare those saved values to detect policy changes and query the pinned IDs for historical evidence. Review records and invalidation behavior are not implemented in this phase.
+- `seed_demo` includes a synthetic LumaDesk pack with product naming rules, voice guidance, a required “Results vary.” disclaimer and FACT-02 with structured `UP_TO 20 %` comparison data and verbatim evidence. Seeding is idempotent, local-only (DEBUG + SQLite), and refuses collisions rather than overwriting manager-authored content.
+- No document upload/extraction, AI analysis, automated general fact-checking, content submission/review, creator revisions, review decisions, audit-event subsystem or export is implemented. Effective dates are metadata; expiration enforcement is deferred.
+
+### Phase 2A role access
+
+| Role | Published sources | Drafts/history | Create/edit drafts | Publish | Workspace member management |
+|---|---:|---:|---:|---:|---:|
+| Creator | Yes | No | No | No | No |
+| Reviewer | Yes | No | No | No | No |
+| Brand manager | Yes | Yes | Yes | Yes | No |
+| Workspace admin | Yes | Yes | Yes | Yes | Existing read-only member list |
+
+## Phase 2B — source ingestion (not started)
+
+Add safe document uploads and text extraction with provenance and human verification. Extracted content must not become approved policy automatically.
 
 ## Phase 3 — content submission and versioning (not started)
 
@@ -61,4 +80,4 @@ Permit export only for the approved version, then add deployment operations, mon
 
 ### Boundary
 
-Phase 0, 1A and 1B provide public introduction, authentication/workspace identity, role-aware navigation, basic profile and password management, and read-only workspace membership inspection by admins. They do not include guideline management, content submission, review execution, AI integration, approval actions, audit events, activity data or export behavior. Current routes and limits are documented in the README.
+Phase 0, 1A and 1B provide the product introduction and workspace/account foundation; Phase 2A adds structured, evidence-backed source authoring and publication. These phases do not include document ingestion/extraction, content submission, review execution, AI integration, review findings, content approval decisions, audit-event subsystem, activity data or export. Current routes and limits are documented in the README.

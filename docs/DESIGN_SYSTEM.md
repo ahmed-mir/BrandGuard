@@ -55,3 +55,14 @@ CSS custom properties are defined in core/static/core/css/site.css under :root a
 ## Preview policy
 
 The landing-page preview uses synthetic LumaDesk content and is labeled as illustrative. Its sample findings, guideline citation and status are not data, do not reflect a completed engine run and must not be used as a model for claiming product functionality.
+
+## Brand source library (Phase 2A)
+
+- The source library uses a compact, horizontally scrollable table at desktop widths; on narrow screens, keep source identity, version/status and the primary open action understandable without page-level horizontal overflow. Filters are GET forms and only show controls managers can use.
+- Source detail separates authoritative text, structured rules, facts, exact evidence and version/approval history. Keep quoted evidence visually distinct with a left rule and a text label; never communicate provenance through color alone.
+- Draft editors use one semantic form per operation with persistent labels, adjacent field errors and a visible source-version context. Rule matcher fields are typed controls, not editable JSON or executable expressions. Fact evidence must remain linked to the same source version.
+- Approved and superseded versions are presented as read-only. Approval is an explicit POST action with CSRF; it includes the exact draft version number in its confirmation text. A successful publication identifies the approver and time, while errors preserve the draft.
+- The sidebar Brand Sources link resolves for every workspace role; server-side policy decides which status/version records each role can see. Do not infer access control from navigation visibility.
+- Show real source/version state and useful empty guidance. Do not add review counts, compliance charts, false “verified” indicators, or AI status. Effective date metadata must not be labeled as expiration enforcement.
+- Use `.brand-*`, `.source-*`, `.published-*`, `.evidence-quote` and `.source-status` component families already added to `site.css`; extend existing tokens and focus states rather than introducing page-specific palette values.
+- When a policy version is published, the workspace revision and deterministic hash refer to the active approved set. Future review UI should display a pinned historical snapshot only from a review record, not recompute a past review against today's policy.

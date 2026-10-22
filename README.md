@@ -1,6 +1,6 @@
 # BrandGuard
 
-BrandGuard is a source-backed review and approval system for marketing content. Phases 0, 1A and 1B provide the public product introduction, Django session authentication, workspace-scoped identity, a role-aware application shell, editable basic profile details, secure password changes, and an administrator-only read-only member list. The LumaDesk examples on the public page remain illustrative; no brand review, approval, or export is performed.
+BrandGuard is a source-backed review and approval system for marketing content. Phases 0, 1A, 1B and 2A provide the public introduction, Django session authentication, role-aware workspace shell, basic profile and password management, an administrator-only read-only member list, and workspace-scoped authoring/versioning of evidence-backed brand sources, deterministic rules and approved facts. Brand source approval publishes policy only; it does not approve marketing content or run a review.
 
 ## Requirements
 
@@ -73,6 +73,13 @@ Open <http://127.0.0.1:8000/>. To test the full local path, visit `/accounts/log
 - `/app/` — authenticated, role-aware workspace overview. Requires exactly one active membership in an active workspace.
 - `/app/settings/profile/` — authenticated account settings. A user may edit first and last name and change their password; username, email, workspace and role are read-only.
 - `/app/members/` — read-only memberships for the current workspace. Workspace admins only; all other roles receive 403.
+- `/app/brand-sources/` — source library. Every role can view published sources; brand managers and workspace admins also see drafts and history.
+- `/app/brand-sources/new/` — create a source and its first draft (managers/admins).
+- `/app/brand-sources/<source-id>/` — source details and version history, restricted to the current workspace.
+- `/app/brand-sources/<source-id>/versions/new/` — create or resume a draft version (managers/admins).
+- `/app/brand-sources/<source-id>/versions/<version>/` — view a source version and its policy/evidence.
+- `/app/brand-sources/<source-id>/versions/<version>/edit/` — edit a draft source text, rules and facts (managers/admins).
+- Nested `/rules/` and `/facts/` routes — manage entries on drafts; publishing uses a CSRF-protected POST at `/approve/` (managers/admins).
 
 ## Configuration and PostgreSQL
 
@@ -93,7 +100,7 @@ python manage.py migrate
 python manage.py test
 ```
 
-The test suite covers Phase 0 landing/health routes, Phase 1A authentication and membership security, and Phase 1B role-specific navigation, account/profile/password behavior, CSRF, session preservation, admin-only members access, workspace isolation, and read-only boundaries. `python manage.py collectstatic --noinput` can be used to verify/build deployment static assets; generated `staticfiles/` output is ignored.
+The test suite covers Phase 0 landing/health routes, Phase 1A authentication and membership security, Phase 1B profile/password/navigation/member safeguards, and Phase 2A source/rule/fact CRUD, exact evidence, role/workspace isolation, atomic publication, immutability, supersession, revision/hash snapshots and idempotent demo data. `python manage.py collectstatic --noinput` can be used to verify/build deployment static assets; generated `staticfiles/` output is ignored.
 
 ## Architecture and limits
 
@@ -101,12 +108,28 @@ The test suite covers Phase 0 landing/health routes, Phase 1A authentication and
 - `core/` — public landing/health pages, reusable responsive application shell, local styles and accessible mobile-navigation script, plus the authenticated overview template.
 - `accounts/` — a Django `ModelBackend` subclass, login and settings forms/views, and POST-only logout. Password hashes and session behavior use Django. The login identifier is an exact username or case-insensitive email; when an identifier ambiguously matches one account's username and another account's email, authentication is rejected. Django's `LoginView` validates `next` against the current host/scheme. Account changes are limited to first and last name plus Django-validated password changes.
 - `workspaces/` — workspace and membership models, one-membership-per-user/workspace database constraint, server-side membership/role decorators, shared app page context, the role-aware `/app/` overview, the admin-only workspace member view, and a local-only `seed_demo` management command.
+- `brand_sources/` — workspace-scoped `BrandSource`, immutable `SourceVersion`, structured `BrandRule` matcher schemas, and `ApprovedFact`. Services own draft cloning, atomic approval/supersession, active-version queries and policy snapshots. Source text is stored with SHA-256 hashes. Rule/fact evidence must occur verbatim in its source version; offsets are checked. Matcher types support prohibited terms, required terms, required disclaimers and approved-fact references using an allowlisted schema, never executable expressions.
 - `docs/` — phase plan and design system.
 
 The overview displays the signed-in identity, active workspace and membership role, the real workspace and membership status/dates, and role-specific guidance. It does not query or display review counts, submissions, analytics, notifications, compliance scores, or fabricated dashboard records. Content review activity is explicitly marked unavailable because review records are not implemented. Role-specific future navigation items are noninteractive and marked unavailable. Workspace admins can inspect actual membership records scoped to their current workspace; inactive membership records are shown as inactive. Other roles cannot access the member route, even by direct URL. The profile form only saves first and last name. Django's built-in `PasswordChangeForm` validates password changes, and the current session is updated with `update_session_auth_hash`. Profile and password changes use POST with CSRF protection. Role decisions are resolved from database membership, never client fields. A user with no active membership, an inactive workspace, or ambiguous multiple active memberships is denied workspace access.
 
-Brand guideline management, content submissions, evidence-backed review, revisions, approval decisions, audit history, AI integration, exports, public registration, and workspace/member modification remain deferred. Account settings cannot change email, username or role. Workspace administration is read-only in Phase 1B. No custom user model or PRD-specific role behavior beyond the documented workspace roles was introduced.
+Content submissions, evidence-backed execution of a review, automated/general factual verification, creator revisions, reviewer content-approval decisions, audit-event subsystem, AI integration, document uploads/extraction, exports, public registration, and workspace/member modification remain deferred. Brand-source publishing is not a content review or content approval. Effective dates are stored but expiration-window enforcement is not included. Account settings cannot change email, username or role. Workspace administration remains limited to the existing read-only member list plus source-management ability for admins. The existing Django user model is retained.
+
+### Phase 2A permissions and policy snapshots
+
+| Role | View approved sources/evidence | View draft/superseded versions | Create/edit draft policy | Publish source versions |
+| --- | --- | --- | --- | --- |
+| Creator | Yes | No | No | No |
+| Reviewer | Yes | No | No | No |
+| Brand manager | Yes | Yes | Yes | Yes |
+| Workspace admin | Yes | Yes | Yes | Yes |
+
+Authorization is server-side and every source/version/evidence query is scoped to the active workspace membership. Publishing validates every rule/fact excerpt against the full source text inside one transaction, records approver/time, supersedes the prior source version, increments `Workspace.policy_revision` and recomputes `Workspace.policy_snapshot_hash`. Historical approved versions and evidence remain stored.
+
+For a future content review, persist `policy_snapshot(workspace)`'s `revision`, `hash` and exact `versions` (source ID, version ID/number and content hash) with the review when it starts. Resolve policy entries against those version IDs to reproduce evidence later; compare the saved hash/revision against the current workspace snapshot only to detect changed policy. `active_policy_versions(workspace)` queries the current approved set. Phase 2A does not create review records or decide what to do when policy changes during a review.
+
+`seed_demo` adds four synthetic LumaDesk sources: product naming with `TERM-001` (prohibited “Luma Desk”, preferred “LumaDesk”) and `TERM-002` (required “LumaDesk”); voice guidance; `DISC-001` (required “Results vary.”); and fact sheet `FACT-02` (fictional “Up to 20% faster task completion in our internal pilot; results vary.”, represented as `UP_TO`, `20`, `%`). Structured entries link exact source excerpts. The statement is fictional and not independently verified.
 
 ## PRD note
 
-The requested path `docs/BrandGuard_Round2_PRD.pdf` is absent. The available source was `BrandGuard_Round2_Product_Requirements_Document.pdf` in the repository root; it was read with a development-only `pypdf` install, which is not a runtime dependency. Phase 1A implemented the account, role, workspace and security foundation; Phase 1B adds workspace UX and basic account settings while leaving workspace membership read-only and keeping later business workflow features deferred. See `docs/PHASES.md` for reconciliation notes.
+The requested path `docs/BrandGuard_Round2_PRD.pdf` is absent. The available source was `BrandGuard_Round2_Product_Requirements_Document.pdf` in the repository root; it was read with a development-only `pypdf` install, which is not a runtime dependency. Phases 1A/1B established account and workspace UX; Phase 2A implements authored structured brand policy and immutable, source-backed publication. Document extraction and content review remain future work. See `docs/PHASES.md` for PRD reconciliation and phase boundaries.
