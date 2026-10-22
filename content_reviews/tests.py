@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -15,10 +15,38 @@ from brand_sources.services import approve_source_version, create_draft_version,
 from workspaces.models import Workspace, WorkspaceMembership
 
 from .models import ContentSubmission, ContentVersion, ReviewCheck, ReviewFinding, ReviewRun
-from .services import create_submission, evaluate_rule, execute_review
+from .services import _locked_review_submission, create_submission, evaluate_rule, execute_review
 
 
 User = get_user_model()
+
+
+class PostgreSQLReviewLockSQLTests(SimpleTestCase):
+    def test_review_start_lock_query_does_not_join_nullable_current_version(self):
+        """Compile the production lock query with Django's PostgreSQL backend, no DB connection."""
+        from django.db.backends.postgresql.base import DatabaseWrapper
+
+        database = DatabaseWrapper(
+            {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": "compile_only",
+                "HOST": "localhost",
+                "USER": "compile_only",
+                "PASSWORD": "compile_only",
+            },
+            alias="postgresql_compile_only",
+        )
+        database.get_autocommit = lambda: False
+        database.in_atomic_block = True
+        queryset = _locked_review_submission(
+            submission_id=uuid.uuid4(),
+            workspace_id=1,
+        )
+        sql, _params = queryset.query.get_compiler(connection=database).as_sql()
+        database.close()
+
+        self.assertIn("FOR UPDATE", sql.upper())
+        self.assertNotIn("LEFT OUTER JOIN", sql.upper())
 
 
 class ReviewFixtureMixin:

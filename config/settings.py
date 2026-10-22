@@ -363,3 +363,28 @@ SECURE_SSL_REDIRECT = False
 SECURE_HSTS_SECONDS = _bounded_int("DJANGO_HSTS_SECONDS", "0", 0, 63_072_000) if IS_PRODUCTION else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool("DJANGO_HSTS_INCLUDE_SUBDOMAINS", False) if IS_PRODUCTION else False
 SECURE_HSTS_PRELOAD = _env_bool("DJANGO_HSTS_PRELOAD", False) if IS_PRODUCTION else False
+
+# Render collects stderr from the web process into its private runtime logs.
+# Keep exception class and stack frames for diagnosis while redacting exception
+# messages, which may contain user supplied or database values.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "safe_console": {
+            "()": "config.logging_utils.SafeTracebackFormatter",
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "stderr": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "safe_console",
+        },
+    },
+    "loggers": {
+        "django.request": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
+        "content_reviews.services": {"handlers": ["stderr"], "level": "WARNING", "propagate": False},
+    },
+}

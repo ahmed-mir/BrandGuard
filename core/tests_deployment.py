@@ -2,6 +2,7 @@ import os
 import secrets
 import subprocess
 import sys
+import logging
 from pathlib import Path
 from unittest import TestCase
 
@@ -127,6 +128,22 @@ class ProductionConfigurationTests(SimpleTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "None")
+
+    def test_review_exception_logs_keep_trace_frames_but_redact_exception_values(self):
+        from config.logging_utils import SafeTracebackFormatter
+
+        private_value = "private marketing copy and connection password"
+        try:
+            raise RuntimeError(private_value)
+        except RuntimeError:
+            record = logging.LogRecord(
+                "content_reviews.services", logging.ERROR, __file__, 1,
+                "Review execution failed (error_type=RuntimeError).", (), sys.exc_info(),
+            )
+        formatted = SafeTracebackFormatter("%(levelname)s %(message)s").format(record)
+        self.assertIn("RuntimeError: [exception message redacted]", formatted)
+        self.assertIn("Traceback (most recent call last)", formatted)
+        self.assertNotIn(private_value, formatted)
 
     def test_private_s3_storage_can_be_configured_without_network_credentials(self):
         env = os.environ.copy()

@@ -189,12 +189,10 @@ def start_review(*, submission_id, version_number, workspace, actor, idempotency
         ).first()
         if membership is None:
             raise ValidationError("Only an active creator in this workspace can run a content review.")
-        submission = (
-            ContentSubmission.objects.select_for_update()
-            .filter(pk=submission_id, workspace_id=locked_workspace.pk)
-            .select_related("creator", "current_version")
-            .first()
-        )
+        submission = _locked_review_submission(
+            submission_id=submission_id,
+            workspace_id=locked_workspace.pk,
+        ).first()
         if submission is None or submission.creator_id != actor.pk:
             raise ContentSubmission.DoesNotExist
         version = submission.versions.filter(version_number=version_number).first()
@@ -269,6 +267,18 @@ def start_review(*, submission_id, version_number, workspace, actor, idempotency
         return ReviewStart(review, rules, approved_versions, existing=False)
 
     # Query scoping above deliberately derives all identity from the locked workspace.
+
+
+def _locked_review_submission(*, submission_id, workspace_id):
+    """Lock only the submission row; current_version is nullable on PostgreSQL."""
+    return (
+        ContentSubmission.objects.select_for_update()
+        .filter(pk=submission_id, workspace_id=workspace_id)
+        # Do not join current_version here: it is a nullable FK, and PostgreSQL
+        # rejects FOR UPDATE when that creates a LEFT OUTER JOIN. The review
+        # path only needs creator_id and loads the requested version separately.
+        .select_related("creator")
+    )
 
 
 def execute_review(*, submission_id, version_number, workspace, actor, idempotency_key):
@@ -361,6 +371,7 @@ def execute_review(*, submission_id, version_number, workspace, actor, idempoten
                     review.pk,
                     rule.pk,
                     type(exc).__name__,
+                    exc_info=True,
                 )
                 try:
                     _save_check(
@@ -402,6 +413,7 @@ def execute_review(*, submission_id, version_number, workspace, actor, idempoten
             review.workspace_id,
             review.pk,
             type(exc).__name__,
+            exc_info=True,
         )
         review.refresh_from_db()
         if not review.is_terminal:
