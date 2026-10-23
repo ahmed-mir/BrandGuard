@@ -42,13 +42,27 @@ class AIAnalysisRejected(Exception):
 
 
 def ai_analysis_available():
-    return bool(settings.BRANDGUARD_AI_ENABLED and settings.OPENAI_API_KEY)
+    return ai_analysis_mode() in {"demo", "real"}
+
+
+def ai_analysis_mode():
+    """Return the one unambiguous execution mode configured for this process."""
+    if settings.BRANDGUARD_AI_ENABLED and settings.BRANDGUARD_AI_DEMO_MODE:
+        return "conflict"
+    if settings.BRANDGUARD_AI_DEMO_MODE:
+        return "demo"
+    if settings.BRANDGUARD_AI_ENABLED:
+        return "real" if settings.OPENAI_API_KEY else "missing_key"
+    return "disabled"
 
 
 def ai_unavailable_reason():
-    if not settings.BRANDGUARD_AI_ENABLED:
+    mode = ai_analysis_mode()
+    if mode == "conflict":
+        return "AI cannot run because real-provider and Demo AI modes are both enabled. Enable only one mode."
+    if mode == "disabled":
         return "AI analysis is disabled for this deployment. Deterministic policy review remains available."
-    if not settings.OPENAI_API_KEY:
+    if mode == "missing_key":
         return "AI analysis is unavailable because no provider key is configured. Deterministic policy review remains available."
     return ""
 
@@ -67,6 +81,14 @@ def run_ai_analysis(*, submission_id, version_number, workspace, actor, idempote
     """Capture a policy snapshot, call the provider once outside locks, then persist validated results."""
     if not consent:
         raise ValidationError("Confirm the external-processing disclosure before running AI analysis.")
+    mode = ai_analysis_mode()
+    if mode == "conflict":
+        raise AIAnalysisRejected(
+            "MODE_CONFLICT",
+            "Real-provider AI and Demo AI mode cannot be enabled together. Enable only one mode.",
+        )
+    provider_name = "demo" if mode == "demo" else "openai"
+    model_name = "simulated-brandguard-demo" if mode == "demo" else settings.BRANDGUARD_AI_MODEL
     try:
         request_key = uuid.UUID(str(idempotency_key))
     except (TypeError, ValueError, AttributeError) as exc:
@@ -107,8 +129,8 @@ def run_ai_analysis(*, submission_id, version_number, workspace, actor, idempote
             content_hash=version.content_hash,
             policy_revision=snapshot["revision"],
             policy_snapshot_hash=snapshot["hash"],
-            provider="openai",
-            model_identifier=settings.BRANDGUARD_AI_MODEL,
+            provider=provider_name,
+            model_identifier=model_name,
             status=AIAnalysisRun.Status.COMPLETE,
         ).first()
         if prior_complete:
@@ -124,8 +146,8 @@ def run_ai_analysis(*, submission_id, version_number, workspace, actor, idempote
             content_hash=version.content_hash,
             policy_revision=snapshot["revision"],
             policy_snapshot_hash=snapshot["hash"],
-            provider="openai",
-            model_identifier=settings.BRANDGUARD_AI_MODEL,
+            provider=provider_name,
+            model_identifier=model_name,
             status=AIAnalysisRun.Status.RUNNING,
             # The HTTP request is synchronous and bounded. Ignore abandoned
             # rows after that request could reasonably have finished so a
@@ -161,18 +183,18 @@ def run_ai_analysis(*, submission_id, version_number, workspace, actor, idempote
             policy_revision=snapshot["revision"],
             policy_snapshot_hash=snapshot["hash"],
             policy_snapshot=snapshot,
-            context_manifest=context_manifest if ai_analysis_available() else [],
-            provider="openai",
-            model_identifier=settings.BRANDGUARD_AI_MODEL,
+            context_manifest=context_manifest if mode in {"demo", "real"} else [],
+            provider=provider_name,
+            model_identifier=model_name,
             status=AIAnalysisRun.Status.RUNNING,
-            external_processing_consented=True,
-            consented_at=timezone.now(),
+            external_processing_consented=mode == "real",
+            consented_at=timezone.now() if mode == "real" else None,
             idempotency_key=request_key,
         )
-        if not ai_analysis_available():
+        if mode in {"disabled", "missing_key"}:
             category = (
                 AIAnalysisRun.ErrorCategory.AI_DISABLED
-                if not settings.BRANDGUARD_AI_ENABLED
+                if mode == "disabled"
                 else AIAnalysisRun.ErrorCategory.MISSING_API_KEY
             )
             _finish_failed(run, category)
@@ -190,7 +212,12 @@ def run_ai_analysis(*, submission_id, version_number, workspace, actor, idempote
         }
 
     try:
-        response_data = request_analysis(payload)
+        if mode == "demo":
+            # This repository-controlled adapter does not import or call the OpenAI SDK.
+            from .demo import request_demo_analysis
+            response_data = request_demo_analysis(payload)
+        else:
+            response_data = request_analysis(payload)
         validated = validate_provider_findings(
             response_data.get("data"),
             content_text=version.content_text,

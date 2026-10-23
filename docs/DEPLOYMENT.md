@@ -179,3 +179,13 @@ Render's free web services use an ephemeral filesystem, spin down after 15 minut
 ## Phase 4B-1 status and blockers
 
 The local application is configured for Render's Python runtime, Gunicorn WSGI, PostgreSQL, WhiteNoise, HTTPS-aware secure cookies/proxy handling, health checks, guarded S3-compatible private imports, and explicit demo bootstrap. No service, database, repository, domain, bucket, or credentials were created or configured. No live URL exists from this work. Actual PostgreSQL and object-storage integration, production demo bootstrap, deployed workflow, monitoring, backup/restore and external-device browser verification remain for Phase 4B-2/operator setup.
+## Hackathon Demo AI configuration
+
+For clearly simulated advisory output with no external provider request, configure:
+
+```text
+BRANDGUARD_AI_ENABLED=false
+BRANDGUARD_AI_DEMO_MODE=true
+```
+
+No `OPENAI_API_KEY` is required. Demo results are explicitly labeled simulated in the UI and saved with provider/model identity `demo` / `simulated-brandguard-demo`. Both flags default off, and enabling both together fails closed. To disable the entire AI section, set both flags to `false`.

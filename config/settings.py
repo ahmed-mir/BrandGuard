@@ -312,6 +312,7 @@ SESSION_ENGINE = "django.contrib.sessions.backends.db"
 
 # Optional, user-initiated advisory analysis. A key alone never enables calls.
 BRANDGUARD_AI_ENABLED = _env_bool("BRANDGUARD_AI_ENABLED", False)
+BRANDGUARD_AI_DEMO_MODE = _env_bool("BRANDGUARD_AI_DEMO_MODE", False)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 BRANDGUARD_AI_MODEL = os.environ.get("BRANDGUARD_AI_MODEL", "gpt-5.4-mini").strip()
 if not BRANDGUARD_AI_MODEL or len(BRANDGUARD_AI_MODEL) > 64:

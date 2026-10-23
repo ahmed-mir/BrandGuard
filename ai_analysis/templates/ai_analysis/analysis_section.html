@@ -5,21 +5,32 @@
       <h3 id="ai-analysis-title">AI-assisted analysis</h3>
       <p>Review tone, messaging and contextual claims against approved brand guidance.</p>
     </div>
-    {% if ai_analysis_available %}<span class="review-state review-state--complete">Ready to analyze</span>{% else %}<span class="review-state review-state--not-applicable">Unavailable</span>{% endif %}
+    {% if ai_analysis_demo_mode %}<span class="review-state review-state--complete">Demo AI</span>{% elif ai_analysis_available %}<span class="review-state review-state--complete">Ready to analyze</span>{% else %}<span class="review-state review-state--not-applicable">Unavailable</span>{% endif %}
   </div>
   <p class="ai-analysis__notice">AI output is subjective advisory guidance. It does not create deterministic findings, change approval eligibility, or affect human decisions or exports. Claims without evidence are labeled unverified or for human review.</p>
+  {% if ai_analysis_demo_mode %}
+    <div class="ai-analysis__demo-disclosure" role="status"><strong>Demo AI mode</strong><p>Simulated advisory analysis for demonstration purposes. No external AI provider is contacted. Demo results are repository-controlled examples grounded in the approved synthetic LumaDesk sources.</p></div>
+  {% endif %}
 
   {% if can_request_ai_analysis %}
     {% if ai_analysis_available %}
       <form method="post" action="{% url 'app:content_reviews:ai_analysis:analyze' submission.id version.version_number %}" class="ai-analysis__form">
         {% csrf_token %}{{ ai_analysis_consent_form.idempotency_key }}
-        <label class="ai-analysis__consent" for="{{ ai_analysis_consent_form.consent_external_processing.id_for_label }}">
-          {{ ai_analysis_consent_form.consent_external_processing }}
-          <span><strong>External processing disclosure</strong><br>Selected content and only relevant approved source excerpts will be sent to OpenAI for this request. Do not proceed with confidential material unless you are authorized to share it. Provider data-retention controls depend on the provider account.</span>
-        </label>
-        <button class="button button--secondary" type="submit">Run AI analysis <span aria-hidden="true">→</span></button>
+        {% if ai_analysis_demo_mode %}
+          <label class="ai-analysis__consent" for="{{ ai_analysis_consent_form.confirm_demo_simulation.id_for_label }}">
+            {{ ai_analysis_consent_form.confirm_demo_simulation }}
+            <span><strong>Simulation disclosure</strong><br>This action creates a clearly labeled simulated result. No content or source excerpts leave BrandGuard.</span>
+          </label>
+          <button class="button button--secondary" type="submit">Run demo AI analysis <span aria-hidden="true">→</span></button>
+        {% else %}
+          <label class="ai-analysis__consent" for="{{ ai_analysis_consent_form.consent_external_processing.id_for_label }}">
+            {{ ai_analysis_consent_form.consent_external_processing }}
+            <span><strong>External processing disclosure</strong><br>Selected content and only relevant approved source excerpts will be sent to OpenAI for this request. Do not proceed with confidential material unless you are authorized to share it. Provider data-retention controls depend on the provider account.</span>
+          </label>
+          <button class="button button--secondary" type="submit">Run AI analysis <span aria-hidden="true">→</span></button>
+          {% if can_revise and version.id == submission.current_version_id %}<p class="ai-analysis__demo-note">Use synthetic demonstration content when testing this optional external service.</p>{% endif %}
+        {% endif %}
       </form>
-      {% if can_revise and version.id == submission.current_version_id %}<p class="ai-analysis__demo-note">Use synthetic demonstration content when testing this optional external service.</p>{% endif %}
     {% else %}
       <div class="ai-analysis__unavailable" role="status"><strong>AI analysis unavailable</strong><p>{{ ai_unavailable_reason }}</p><p>Your deterministic policy review, approvals and approved exports continue to work.</p></div>
     {% endif %}
@@ -31,7 +42,11 @@
       {% for ai_run in ai_analysis_runs %}
         <article class="ai-analysis__run">
           <div class="ai-analysis__run-head">
-            <div><strong>{{ ai_run.get_status_display }}</strong><span class="mono">{{ ai_run.provider }} · {{ ai_run.model_identifier }} · POLICY R{{ ai_run.policy_revision }}</span></div>
+            <div><strong>{{ ai_run.get_status_display }}</strong>
+              {% if ai_run.provider == "demo" %}
+                <span class="ai-analysis__demo-disclosure ai-analysis__demo-run-disclosure"><strong>Demo AI — simulated response.</strong><br>No external AI provider was contacted. <span class="mono">Demo / simulated · POLICY R{{ ai_run.policy_revision }}</span></span>
+              {% else %}<span class="mono">{{ ai_run.provider }} · {{ ai_run.model_identifier }} · POLICY R{{ ai_run.policy_revision }}</span>{% endif %}
+            </div>
             <time datetime="{{ ai_run.created_at|date:'c' }}">{{ ai_run.created_at|date:"M j, Y · H:i T" }}</time>
           </div>
           {% if ai_run.is_stale %}<p class="ai-analysis__stale" role="status">Historical analysis: this content version or approved policy is no longer current. Run a new analysis on the current version to assess current guidance.</p>{% endif %}

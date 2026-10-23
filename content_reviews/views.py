@@ -113,7 +113,7 @@ def version_detail(request, submission_id, version_number):
     from approvals.services import current_valid_approval
     from ai_analysis.forms import AIAnalysisConsentForm
     from ai_analysis.models import AIAnalysisRun
-    from ai_analysis.services import ai_analysis_available, ai_unavailable_reason, current_analysis_is_stale
+    from ai_analysis.services import ai_analysis_available, ai_analysis_mode, ai_unavailable_reason, current_analysis_is_stale
     current_approval = current_valid_approval(submission)
     current_policy = policy_snapshot(request.workspace)
     version_rows = []
@@ -173,9 +173,10 @@ def version_detail(request, submission_id, version_number):
             "can_revise": creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk,
             "ai_analysis_runs": ai_analysis_runs,
             "ai_analysis_available": ai_analysis_available(),
+            "ai_analysis_demo_mode": ai_analysis_mode() == "demo",
             "ai_unavailable_reason": ai_unavailable_reason(),
             "can_request_ai_analysis": creator_view and submission.creator_id == request.user.pk,
-            "ai_analysis_consent_form": AIAnalysisConsentForm(),
+            "ai_analysis_consent_form": AIAnalysisConsentForm(demo_mode=ai_analysis_mode() == "demo"),
         }),
     )
 

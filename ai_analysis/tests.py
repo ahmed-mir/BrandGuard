@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from approvals.models import ApprovalDecision
 from approvals.services import approve_version, current_valid_approval, submit_for_approval
+from brand_sources.demo import seed_lumadesk_source_pack
 from brand_sources.services import approve_source_version, create_draft_version, policy_snapshot
 from content_reviews.models import ContentSubmission, ReviewRun
 from content_reviews.services import execute_review
@@ -643,3 +644,193 @@ class OpenAIResponsesAdapterTests(TestCase):
         self.assertEqual(request["text"]["format"]["schema"], FINDING_SCHEMA)
         self.assertEqual(request["max_output_tokens"], 1400)
         self.assertEqual(json.loads(request["input"]), {"content": "synthetic"})
+
+
+@override_settings(
+    PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
+    BRANDGUARD_AI_ENABLED=False,
+    BRANDGUARD_AI_DEMO_MODE=True,
+    OPENAI_API_KEY="",
+    BRANDGUARD_AI_MODEL="gpt-5.4-mini",
+    BRANDGUARD_AI_MAX_FINDINGS=3,
+    BRANDGUARD_AI_MAX_CONTEXT_CHARS=4000,
+)
+class DemoAIAnalysisTests(ReviewFixtureMixin, TestCase):
+    synthetic_text = (
+        "Up to 20% faster task completion in our internal pilot; results vary. "
+        "LumaDesk is a productivity miracle. "
+        "We guarantee 100% faster task completion for every team."
+    )
+
+    def setUp(self):
+        super().setUp()
+        seed_lumadesk_source_pack(workspace=self.workspace, owner=self.manager)
+        self.workspace.refresh_from_db()
+
+    def create_reviewed_synthetic_submission(self):
+        submission, version = self.create_submission_for(text=self.synthetic_text)
+        review = execute_review(
+            submission_id=submission.pk,
+            version_number=version.version_number,
+            workspace=self.workspace,
+            actor=self.creator,
+            idempotency_key=uuid.uuid4(),
+        )
+        return submission, version, review
+
+    def test_demo_run_uses_real_snapshot_validation_and_never_calls_provider(self):
+        submission, version, review = self.create_reviewed_synthetic_submission()
+        before_findings = list(review.findings.values_list(
+            "pk", "finding_type", "classification", "matched_text", "evidence_excerpt", "source_version_id"
+        ))
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            run = run_ai_analysis(
+                submission_id=submission.pk,
+                version_number=version.version_number,
+                workspace=self.workspace,
+                actor=self.creator,
+                idempotency_key=uuid.uuid4(),
+                consent=True,
+            )
+
+        self.assertEqual(run.status, AIAnalysisRun.Status.COMPLETE, run.error_category)
+        self.assertEqual(run.provider, "demo")
+        self.assertEqual(run.model_identifier, "simulated-brandguard-demo")
+        self.assertFalse(run.external_processing_consented)
+        self.assertIsNone(run.consented_at)
+        self.assertEqual(run.content_hash, version.content_hash)
+        self.assertEqual(run.policy_snapshot_hash, review.policy_snapshot_hash)
+        self.assertEqual(run.policy_snapshot["revision"], review.policy_revision)
+        provider.assert_not_called()
+
+        findings = list(run.findings.select_related("source_version__source"))
+        self.assertEqual(len(findings), 3)
+        self.assertEqual(
+            {(finding.category, finding.classification) for finding in findings},
+            {
+                (AIAnalysisFinding.Category.CLAIM, AIAnalysisFinding.Classification.SUPPORTED),
+                (AIAnalysisFinding.Category.CLAIM, AIAnalysisFinding.Classification.POTENTIAL_CONFLICT),
+                (AIAnalysisFinding.Category.TONE, AIAnalysisFinding.Classification.POTENTIAL_CONFLICT),
+            },
+        )
+        for finding in findings:
+            self.assertIn(str(finding.source_version_id), {
+                row["version_id"] for row in run.policy_snapshot["versions"]
+            })
+            self.assertEqual(
+                finding.source_version.content_hash,
+                next(row["content_hash"] for row in run.policy_snapshot["versions"] if row["version_id"] == str(finding.source_version_id)),
+            )
+            self.assertIn(finding.evidence_excerpt, finding.source_version.source_text)
+            self.assertTrue(any(
+                row["source_version_id"] == str(finding.source_version_id)
+                and finding.evidence_excerpt in row["excerpt"]
+                for row in run.context_manifest
+            ))
+            self.assertEqual(
+                version.content_text[finding.text_start:finding.text_end], finding.matched_text
+            )
+
+        review.refresh_from_db()
+        after_findings = list(review.findings.values_list(
+            "pk", "finding_type", "classification", "matched_text", "evidence_excerpt", "source_version_id"
+        ))
+        self.assertEqual(review.status, ReviewRun.Status.COMPLETE)
+        self.assertEqual(before_findings, after_findings)
+        self.assertEqual(submission.approval_requests.count(), 0)
+
+    def test_invalid_demo_citation_fails_through_the_same_server_validator(self):
+        submission, version, _review = self.create_reviewed_synthetic_submission()
+        invalid = {
+            "category": "TONE",
+            "classification": "POTENTIAL_CONFLICT",
+            "explanation": "This is invalid synthetic output.",
+            "matched_text": "productivity miracle",
+            "source_version_id": str(uuid.uuid4()),
+            "evidence_excerpt": "Citation not in the approved source pack.",
+            "suggested_wording": "",
+        }
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            with patch("ai_analysis.demo.request_demo_analysis", return_value={"data": {"findings": [invalid]}}):
+                run = run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number,
+                    workspace=self.workspace, actor=self.creator,
+                    idempotency_key=uuid.uuid4(), consent=True,
+                )
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.INVALID_EVIDENCE)
+        self.assertFalse(run.findings.exists())
+        provider.assert_not_called()
+
+    def test_demo_http_flow_uses_simulation_consent_and_labels_saved_result(self):
+        client = Client()
+        client.force_login(self.creator)
+        submission, version, review = self.create_reviewed_synthetic_submission()
+        before_review_ids = list(review.findings.values_list("pk", flat=True))
+        detail_url = reverse("app:content_reviews:version_detail", args=[submission.pk, version.version_number])
+        post_url = reverse("app:content_reviews:ai_analysis:analyze", args=[submission.pk, version.version_number])
+        page = client.get(detail_url)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Demo AI mode")
+        self.assertContains(page, "Simulated advisory analysis for demonstration purposes. No external AI provider is contacted.")
+        self.assertContains(page, "Run demo AI analysis")
+        self.assertNotContains(page, "Selected content and only relevant approved source excerpts will be sent to OpenAI")
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            response = client.post(post_url, {
+                "idempotency_key": str(uuid.uuid4()),
+                "confirm_demo_simulation": "on",
+            })
+        self.assertEqual(response.status_code, 302)
+        run = AIAnalysisRun.objects.get(content_version=version)
+        self.assertEqual(run.status, AIAnalysisRun.Status.COMPLETE)
+        self.assertEqual(run.provider, "demo")
+        provider.assert_not_called()
+        result_page = client.get(detail_url)
+        self.assertContains(result_page, "Demo AI — simulated response.")
+        self.assertContains(result_page, "Demo / simulated")
+        self.assertContains(result_page, "no external AI provider was contacted")
+        self.assertEqual(list(review.findings.values_list("pk", flat=True)), before_review_ids)
+        self.assertEqual(submission.approval_requests.count(), 0)
+
+    def test_demo_mode_is_independent_of_api_key_and_idempotency_reuses_saved_run(self):
+        submission, version, _review = self.create_reviewed_synthetic_submission()
+        token = uuid.uuid4()
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            first = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number,
+                workspace=self.workspace, actor=self.creator, idempotency_key=token, consent=True,
+            )
+            second = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number,
+                workspace=self.workspace, actor=self.creator, idempotency_key=token, consent=True,
+            )
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(AIAnalysisRun.objects.filter(content_version=version).count(), 1)
+        self.assertEqual(first.provider, "demo")
+        self.assertFalse(first.external_processing_consented)
+        provider.assert_not_called()
+
+    @override_settings(BRANDGUARD_AI_ENABLED=True, BRANDGUARD_AI_DEMO_MODE=True, OPENAI_API_KEY="test-only")
+    def test_mixed_real_and_demo_modes_fail_safely_without_running_provider(self):
+        submission, version, _review = self.create_reviewed_synthetic_submission()
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            with self.assertRaises(AIAnalysisRejected) as raised:
+                run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number,
+                    workspace=self.workspace, actor=self.creator,
+                    idempotency_key=uuid.uuid4(), consent=True,
+                )
+        self.assertEqual(raised.exception.category, "MODE_CONFLICT")
+        self.assertFalse(AIAnalysisRun.objects.exists())
+        provider.assert_not_called()
+
+    def test_demo_mode_does_not_bypass_creator_ownership(self):
+        submission, version, _review = self.create_reviewed_synthetic_submission()
+        with patch("ai_analysis.services.request_analysis", side_effect=AssertionError("provider must not run")) as provider:
+            with self.assertRaises(PermissionDenied):
+                run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number,
+                    workspace=self.workspace, actor=self.other_creator,
+                    idempotency_key=uuid.uuid4(), consent=True,
+                )
+        provider.assert_not_called()

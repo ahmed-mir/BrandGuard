@@ -10,7 +10,7 @@ from workspaces.permissions import workspace_member_required
 
 from .forms import AIAnalysisConsentForm
 from .models import AIAnalysisRun
-from .services import AIAnalysisRejected, run_ai_analysis
+from .services import AIAnalysisRejected, ai_analysis_mode, run_ai_analysis
 
 
 @require_POST
@@ -25,7 +25,8 @@ def analyze_version(request, submission_id, version_number):
     ):
         raise PermissionDenied("Only the creator may request AI analysis for their own content.")
     version = get_object_or_404(submission.versions, version_number=version_number)
-    form = AIAnalysisConsentForm(request.POST)
+    demo_mode = ai_analysis_mode() == "demo"
+    form = AIAnalysisConsentForm(request.POST, demo_mode=demo_mode)
     if not form.is_valid():
         for error_list in form.errors.values():
             for error in error_list:
@@ -42,7 +43,7 @@ def analyze_version(request, submission_id, version_number):
             workspace=request.workspace,
             actor=request.user,
             idempotency_key=form.cleaned_data["idempotency_key"],
-            consent=form.cleaned_data["consent_external_processing"],
+            consent=form.cleaned_data["confirm_demo_simulation" if demo_mode else "consent_external_processing"],
         )
     except ContentSubmission.DoesNotExist:
         raise Http404("This submission is not available in the current workspace.")
@@ -63,7 +64,10 @@ def analyze_version(request, submission_id, version_number):
             version_number=version.version_number,
         )
     if run.status == AIAnalysisRun.Status.COMPLETE:
-        messages.success(request, "AI advisory analysis is ready. It is separate from deterministic findings and does not affect approval.")
+        if run.provider == "demo":
+            messages.success(request, "Demo AI analysis is ready. This is a simulated response; no external AI provider was contacted. It is separate from deterministic findings and does not affect approval.")
+        else:
+            messages.success(request, "AI advisory analysis is ready. It is separate from deterministic findings and does not affect approval.")
     elif run.status == AIAnalysisRun.Status.RUNNING:
         messages.info(request, "An analysis for this content and policy is already underway. Its saved result will appear here when processing finishes.")
     else:

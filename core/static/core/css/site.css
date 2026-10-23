@@ -115,6 +115,11 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 .ai-analysis__demo-note,.ai-analysis__snapshot { margin: .45rem 0 0; color: var(--muted); font-size: .66rem; line-height: 1.6; }
 .ai-analysis__unavailable,.ai-analysis__failure,.ai-analysis__stale { margin: .9rem 0; padding: .8rem 1rem; border-left: 2px solid var(--amber); background: var(--amber-bg); color: var(--ink-soft); font-size: .74rem; line-height: 1.6; }
 .ai-analysis__unavailable p { margin: .3rem 0 0; }
+.ai-analysis__demo-disclosure { margin: .9rem 0; padding: .8rem 1rem; border-left: 2px solid var(--teal); background: var(--teal-pale); color: var(--ink-soft); font-size: .74rem; line-height: 1.6; }
+.ai-analysis__demo-disclosure strong { color: var(--ink); }
+.ai-analysis__demo-disclosure p { margin: .25rem 0 0; }
+.ai-analysis__demo-run-disclosure { display: block; max-width: 680px; }
+.ai-analysis__demo-run-disclosure .mono { display: block; margin-top: .35rem; color: var(--muted); font-size: .58rem; font-weight: 500; }
 .ai-analysis__history { margin-top: 1rem; }
 .ai-analysis__history h4 { margin: 0 0 .65rem; font-size: .87rem; }
 .ai-analysis__run { padding: 1rem 0; border-top: 1px solid var(--border); }

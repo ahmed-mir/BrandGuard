@@ -215,3 +215,14 @@ The operator reports that the pre-deployment local checks passed: 199 tests, Dja
 Code inspection confirms AI is disabled by default; the provider adapter checks the flag before creating an OpenAI client, and an absent API key does not prevent settings import/startup. Deterministic review runs through its existing service and does not call the AI adapter. AI runs/findings are stored separately; the content-version view displays them independently, while approval eligibility and export validity continue to use the established approval/review services. The two AI migrations create AI-owned records and alter an AI-owned context-manifest field; they do not alter deterministic review or approval tables. These migration files were inspected, but production PostgreSQL execution was not independently verified in this closeout.
 
 Remaining risks: local tests used SQLite while production uses PostgreSQL; authenticated production workflows were not manually smoke-tested; and a real AI provider request remains untested and unauthorized. AI must remain disabled until a separately approved, controlled Phase 5D test.
+
+
+## Phase 5D-B ? controlled provider validation (attempted; failed)
+
+One authorized local Responses API request was attempted using synthetic LumaDesk content against a temporary SQLite database. The run was persisted as `FAILED` with `PROVIDER_RATE_LIMIT`; zero AI findings were saved. The OpenAI adapter is configured with SDK retries disabled. No retry was made, and no Render/production data was accessed. This does not validate successful real-provider output; account rate/quota access must be resolved before another separately authorized attempt.
+
+## Phase 5D-C ? zero-cost Demo AI mode (implemented locally)
+
+Added the separate default-off `BRANDGUARD_AI_DEMO_MODE` flag. Demo mode requires no API key and only runs when `BRANDGUARD_AI_ENABLED=false`; mixed flags fail closed. The repository-controlled adapter uses retrieved approved LumaDesk passages, stores runs/findings using the existing AI tables with provider/model identity `demo` / `simulated-brandguard-demo`, and sends output through the existing server-side snapshot, source, citation, content-span and schema validation. The UI identifies results as simulated and explicitly says no external AI provider was contacted. No migration was needed. Demo results do not alter deterministic review, approvals or exports.
+
+Validation on the local SQLite test configuration: Django system check passed; migration drift check reported no changes; 36 `ai_analysis` tests passed; the full suite passed 205 tests; `pip check` found no broken requirements; and `git diff --check` passed. No real provider request was made during Phase 5D-C tests. PostgreSQL behavior and a successful real provider response remain unverified.
