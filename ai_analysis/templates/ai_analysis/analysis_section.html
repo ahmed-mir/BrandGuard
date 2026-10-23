@@ -1,0 +1,59 @@
+<section class="ai-analysis" aria-labelledby="ai-analysis-title">
+  <div class="ai-analysis__heading">
+    <div>
+      <p class="eyebrow"><span class="eyebrow__line"></span>ADVISORY · SEPARATE FROM RULE CHECKS</p>
+      <h3 id="ai-analysis-title">AI-assisted analysis</h3>
+      <p>Review tone, messaging and contextual claims against approved brand guidance.</p>
+    </div>
+    {% if ai_analysis_available %}<span class="review-state review-state--complete">Ready to analyze</span>{% else %}<span class="review-state review-state--not-applicable">Unavailable</span>{% endif %}
+  </div>
+  <p class="ai-analysis__notice">AI output is subjective advisory guidance. It does not create deterministic findings, change approval eligibility, or affect human decisions or exports. Claims without evidence are labeled unverified or for human review.</p>
+
+  {% if can_request_ai_analysis %}
+    {% if ai_analysis_available %}
+      <form method="post" action="{% url 'app:content_reviews:ai_analysis:analyze' submission.id version.version_number %}" class="ai-analysis__form">
+        {% csrf_token %}{{ ai_analysis_consent_form.idempotency_key }}
+        <label class="ai-analysis__consent" for="{{ ai_analysis_consent_form.consent_external_processing.id_for_label }}">
+          {{ ai_analysis_consent_form.consent_external_processing }}
+          <span><strong>External processing disclosure</strong><br>Selected content and only relevant approved source excerpts will be sent to OpenAI for this request. Do not proceed with confidential material unless you are authorized to share it. Provider data-retention controls depend on the provider account.</span>
+        </label>
+        <button class="button button--secondary" type="submit">Run AI analysis <span aria-hidden="true">→</span></button>
+      </form>
+      {% if can_revise and version.id == submission.current_version_id %}<p class="ai-analysis__demo-note">Use synthetic demonstration content when testing this optional external service.</p>{% endif %}
+    {% else %}
+      <div class="ai-analysis__unavailable" role="status"><strong>AI analysis unavailable</strong><p>{{ ai_unavailable_reason }}</p><p>Your deterministic policy review, approvals and approved exports continue to work.</p></div>
+    {% endif %}
+  {% endif %}
+
+  {% if ai_analysis_runs %}
+    <div class="ai-analysis__history">
+      <h4>Saved advisory analyses for version {{ version.version_number }}</h4>
+      {% for ai_run in ai_analysis_runs %}
+        <article class="ai-analysis__run">
+          <div class="ai-analysis__run-head">
+            <div><strong>{{ ai_run.get_status_display }}</strong><span class="mono">{{ ai_run.provider }} · {{ ai_run.model_identifier }} · POLICY R{{ ai_run.policy_revision }}</span></div>
+            <time datetime="{{ ai_run.created_at|date:'c' }}">{{ ai_run.created_at|date:"M j, Y · H:i T" }}</time>
+          </div>
+          {% if ai_run.is_stale %}<p class="ai-analysis__stale" role="status">Historical analysis: this content version or approved policy is no longer current. Run a new analysis on the current version to assess current guidance.</p>{% endif %}
+          {% if ai_run.status == "FAILED" %}<p class="ai-analysis__failure" role="status">{{ ai_run.get_error_category_display }}. No AI findings were saved for this run. Deterministic review results are unchanged.</p>{% endif %}
+          {% if ai_run.status == "COMPLETE" %}
+            {% if ai_run.findings.all %}
+              <ul class="ai-analysis__findings">
+                {% for finding in ai_run.findings.all %}
+                  <li>
+                    <div class="ai-analysis__finding-label"><span>{{ finding.get_category_display }}</span><strong>{{ finding.get_classification_display }}</strong></div>
+                    {% if finding.location_status == "AVAILABLE" %}<blockquote class="ai-analysis__matched">{{ finding.matched_text }}</blockquote>{% endif %}
+                    <p>{{ finding.explanation }}</p>
+                    {% if finding.suggested_wording %}<div class="ai-analysis__suggestion"><span class="mono">SUGGESTED WORDING · REVIEW BEFORE USE</span><p>{{ finding.suggested_wording }}</p></div>{% endif %}
+                    {% if finding.source_version %}<details class="ai-analysis__evidence"><summary>Approved evidence · {{ finding.source_version.source.title }} v{{ finding.source_version.version_number }}</summary><blockquote>{{ finding.evidence_excerpt }}</blockquote><a class="text-link" href="{% url 'app:brand_sources:version_detail' finding.source_version.source_id finding.source_version.version_number %}">Open approved source version</a></details>{% else %}<p class="ai-analysis__unverified">No supporting approved passage was available. This is an unverified advisory, not evidence that the claim is false.</p>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}<p class="ai-analysis__empty">No advisory findings were returned in this completed analysis. This is not a compliance or factual-accuracy guarantee.</p>{% endif %}
+          {% endif %}
+          <p class="ai-analysis__snapshot">Content hash <code>{{ ai_run.content_hash|slice:":12" }}</code> · Policy snapshot <code>{{ ai_run.policy_snapshot_hash|slice:":12" }}</code>{% if ai_run.input_tokens != None or ai_run.output_tokens != None %} · Provider tokens {{ ai_run.input_tokens|default:"—" }} in / {{ ai_run.output_tokens|default:"—" }} out{% endif %}</p>
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>

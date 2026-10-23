@@ -65,7 +65,8 @@ See `docs/APPROVAL_WORKFLOW.md` for request/decision models, state transitions, 
 
 - Plain text only; no campaign file upload, image, OCR, scanned text, PDF/DOCX parsing, formatting analysis or asset review.
 - Synchronous execution; no queue, cancellation, retry dashboard or streaming progress. Input and result limits bound the work.
-- No AI provider, tone analysis, semantic rules, paraphrase matching, synonym resolution, general factual verification, campaign content uploads, automatic suggested-text replacement, notifications, tamper-proof auditing or export.
+- Deterministic checks remain independent from optional AI advisory analysis. AI does not change these runs, findings, submission state, approval eligibility or export validity. See `docs/AI_INTEGRATION.md` for Phase 5A behavior.
+- No semantic deterministic rules, paraphrase matching, synonym resolution, general factual verification, campaign content uploads, automatic suggested-text replacement, notifications or tamper-proof auditing.
 - Required-term and disclaimer applicability is only as good as the explicit saved scope/trigger. If policy configuration is too broad or ambiguous, the engine will not manufacture a violation.
 - Approved facts use a deterministic, narrow comparison subset and can classify only the supported quantity/metric combinations. `SUPPORTED` means the claim text matches that stored structured statement; it does not prove that the underlying statement is externally true.
 - Future-effective sources are excluded; expired-source semantics do not exist in the source schema.

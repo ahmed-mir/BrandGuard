@@ -6,3 +6,4 @@ reportlab>=4.2,<5.0
 gunicorn>=23.0,<24.0
 whitenoise>=6.9,<7.0
 django-storages[s3]>=1.14.6,<1.15
+openai>=2.0,<3.0

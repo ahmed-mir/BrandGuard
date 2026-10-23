@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from . import export_views, views
 
@@ -23,5 +23,9 @@ urlpatterns = [
         "<uuid:submission_id>/versions/<int:version_number>/runs/<uuid:review_id>/",
         views.review_detail,
         name="review_detail",
+    ),
+    path(
+        "<uuid:submission_id>/versions/<int:version_number>/ai/",
+        include(("ai_analysis.urls", "ai_analysis"), namespace="ai_analysis"),
     ),
 ]

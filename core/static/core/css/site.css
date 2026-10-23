@@ -102,6 +102,49 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 @media (max-width: 390px) { .wrap { width: calc(100% - 30px); }.header-link { font-size: .69rem; }.hero__foot .mono { display: none; }.preview-ribbon { gap: .35rem; font-size: .47rem; }.preview-bottom { font-size: .44rem; }.source-line { letter-spacing: 0; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
+/* Optional AI advisory results remain visually separate from policy checks. */
+.ai-analysis { margin: 2rem 0; padding: 1.25rem 0 1.4rem; border-block: 1px solid var(--border-dark); }
+.ai-analysis__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.ai-analysis__heading h3 { margin: .2rem 0 .35rem; font-size: 1.2rem; }
+.ai-analysis__heading p:not(.eyebrow) { max-width: 680px; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.ai-analysis__notice { max-width: 860px; margin: .9rem 0 1rem; color: var(--ink-soft); font-size: .73rem; line-height: 1.65; }
+.ai-analysis__form { display: grid; justify-items: start; gap: .9rem; padding: .9rem 0; border-top: 1px solid var(--border); }
+.ai-analysis__consent { display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: start; gap: .65rem; max-width: 800px; color: var(--ink-soft); font-size: .73rem; line-height: 1.6; }
+.ai-analysis__consent input { width: 17px; height: 17px; margin: .15rem 0 0; accent-color: var(--teal); }
+.ai-analysis__consent strong { color: var(--ink); font-weight: 650; }
+.ai-analysis__demo-note,.ai-analysis__snapshot { margin: .45rem 0 0; color: var(--muted); font-size: .66rem; line-height: 1.6; }
+.ai-analysis__unavailable,.ai-analysis__failure,.ai-analysis__stale { margin: .9rem 0; padding: .8rem 1rem; border-left: 2px solid var(--amber); background: var(--amber-bg); color: var(--ink-soft); font-size: .74rem; line-height: 1.6; }
+.ai-analysis__unavailable p { margin: .3rem 0 0; }
+.ai-analysis__history { margin-top: 1rem; }
+.ai-analysis__history h4 { margin: 0 0 .65rem; font-size: .87rem; }
+.ai-analysis__run { padding: 1rem 0; border-top: 1px solid var(--border); }
+.ai-analysis__run-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: .7rem; }
+.ai-analysis__run-head > div { display: grid; gap: .25rem; }
+.ai-analysis__run-head .mono { overflow-wrap: anywhere; color: var(--muted); font-size: .58rem; }
+.ai-analysis__run-head time { flex: 0 0 auto; color: var(--muted); }
+.ai-analysis__stale { border-color: var(--slate); background: var(--slate-bg); }
+.ai-analysis__findings { display: grid; gap: 0; margin: .6rem 0 0; padding: 0; list-style: none; }
+.ai-analysis__findings > li { padding: .9rem 0; border-top: 1px solid var(--border); }
+.ai-analysis__finding-label { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .8rem; color: var(--muted); font: 500 .6rem var(--mono); letter-spacing: .045em; text-transform: uppercase; }
+.ai-analysis__finding-label strong { color: var(--teal-dark); font-weight: 650; }
+.ai-analysis__findings > li > p { max-width: 900px; margin: .55rem 0; color: var(--ink-soft); font-size: .78rem; line-height: 1.7; overflow-wrap: anywhere; }
+.ai-analysis__matched { margin: .65rem 0; padding: .55rem .8rem; border-left: 2px solid var(--teal); background: var(--teal-pale); color: var(--ink); font-size: .78rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-analysis__suggestion { margin: .7rem 0; padding: .7rem .85rem; border: 1px solid var(--border); background: var(--paper); }
+.ai-analysis__suggestion .mono { color: var(--muted); font-size: .56rem; }
+.ai-analysis__suggestion p { margin: .35rem 0 0; color: var(--ink); font-size: .76rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-analysis__evidence { margin-top: .7rem; color: var(--ink-soft); font-size: .72rem; }
+.ai-analysis__evidence summary { width: fit-content; color: var(--teal-dark); cursor: pointer; font-weight: 600; }
+.ai-analysis__evidence blockquote { margin: .55rem 0; padding: .55rem .8rem; border-left: 2px solid var(--border-dark); color: var(--ink-soft); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-analysis__unverified,.ai-analysis__empty { padding: .65rem .8rem; border-left: 2px solid var(--slate); background: var(--slate-bg); color: var(--ink-soft); font-size: .7rem; line-height: 1.6; }
+.ai-analysis__snapshot code { overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  .ai-analysis__heading,.ai-analysis__run-head { flex-direction: column; }
+  .ai-analysis__heading .review-state { align-self: flex-start; }
+  .ai-analysis__run-head time { flex: auto; }
+  .ai-analysis__form .button { width: 100%; }
+  .ai-analysis__finding-label { align-items: flex-start; flex-direction: column; }
+}
+
 /* Phase 1A: authentication and workspace identity surfaces, using the existing tokens. */
 .login-page { min-height: 100vh; background: var(--canvas); }
 .login-layout { min-height: 100vh; display: grid; grid-template-columns: minmax(0,1.04fr) minmax(420px,.96fr); }

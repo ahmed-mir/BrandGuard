@@ -273,6 +273,7 @@ INSTALLED_APPS = [
     "workspaces.apps.WorkspacesConfig",
     "brand_sources.apps.BrandSourcesConfig",
     "content_reviews.apps.ContentReviewsConfig",
+    "ai_analysis.apps.AIAnalysisConfig",
     "approvals.apps.ApprovalsConfig",
 ]
 MIDDLEWARE = [
@@ -308,6 +309,17 @@ LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "app:home"
 LOGOUT_REDIRECT_URL = "landing"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
+# Optional, user-initiated advisory analysis. A key alone never enables calls.
+BRANDGUARD_AI_ENABLED = _env_bool("BRANDGUARD_AI_ENABLED", False)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BRANDGUARD_AI_MODEL = os.environ.get("BRANDGUARD_AI_MODEL", "gpt-5.4-mini").strip()
+if not BRANDGUARD_AI_MODEL or len(BRANDGUARD_AI_MODEL) > 64:
+    raise ImproperlyConfigured("BRANDGUARD_AI_MODEL must be a non-empty model identifier of at most 64 characters.")
+BRANDGUARD_AI_TIMEOUT_SECONDS = _bounded_int("BRANDGUARD_AI_TIMEOUT_SECONDS", "15", 3, 20)
+BRANDGUARD_AI_MAX_OUTPUT_TOKENS = _bounded_int("BRANDGUARD_AI_MAX_OUTPUT_TOKENS", "1400", 100, 2000)
+BRANDGUARD_AI_MAX_FINDINGS = _bounded_int("BRANDGUARD_AI_MAX_FINDINGS", "12", 1, 12)
+BRANDGUARD_AI_MAX_CONTEXT_CHARS = _bounded_int("BRANDGUARD_AI_MAX_CONTEXT_CHARS", "10000", 1000, 12000)
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -387,5 +399,6 @@ LOGGING = {
         "django.request": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
         "content_reviews.services": {"handlers": ["stderr"], "level": "WARNING", "propagate": False},
         "content_reviews.views": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
+        "ai_analysis.services": {"handlers": ["stderr"], "level": "WARNING", "propagate": False},
     },
 }
