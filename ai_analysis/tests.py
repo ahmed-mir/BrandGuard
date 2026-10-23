@@ -643,5 +643,3 @@ class OpenAIResponsesAdapterTests(TestCase):
         self.assertEqual(request["text"]["format"]["schema"], FINDING_SCHEMA)
         self.assertEqual(request["max_output_tokens"], 1400)
         self.assertEqual(json.loads(request["input"]), {"content": "synthetic"})
-
-\n
