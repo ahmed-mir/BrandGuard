@@ -189,3 +189,19 @@ No Render service, GitHub repository, cloud database, S3 bucket, custom domain o
 ## Phase 4B-2 — live Render deployment (not started)
 
 Operator-led GitHub push, Render PostgreSQL and web-service creation, secret entry, first deployment, private storage decision, authorized demo bootstrap, live workflow verification, backups/monitoring, and custom domain work remain deferred. This phase does not claim that BrandGuard is live.
+
+
+## Phase 5A - source-grounded AI advisory analysis (implemented locally; optional)
+
+- Added the `ai_analysis` app and additive migration storing separate AI run and finding records. AI is disabled by default; configuration uses `BRANDGUARD_AI_ENABLED`, server-only `OPENAI_API_KEY`, `BRANDGUARD_AI_MODEL`, and bounded timeout/output/context/finding controls.
+- Added a creator-only POST endpoint on a saved content version. It requires explicit external-processing consent. GET page views never call the provider. The provider receives only the selected immutable marketing text, channel/campaign context, and bounded excerpts retrieved from currently approved, effective sources in the pinned workspace policy snapshot.
+- The OpenAI Responses API adapter uses a strict JSON Schema response, no tools, `store=False`, no automatic retries and a bounded timeout. The configured default is `gpt-5.4-mini`. No API key was configured during implementation; all automated provider tests use mocks and no live request was made.
+- The server revalidates schema, category/classification, workspace and snapshot pins, source IDs and hashes, exact citations both in saved source text and in the excerpt sent to the provider, content spans, and numeric wording suggestions before saving any finding. Invalid output creates no findings.
+- Tone and contextual messaging are subjective advice, not deterministic violations. Claim outputs distinguish supported by supplied evidence, potential conflict, not verified and needs human review. No internet fact checking or general factual verification is claimed.
+- AI analysis is separate from deterministic review and does not alter its records, approval state or export eligibility. Analyses on an old version or policy remain preserved and are labelled historical/stale. Provider failures leave existing deterministic records and human decisions unchanged.
+- Added the review-version route `/app/reviews/<submission-id>/versions/<version>/ai/analyze/` and a restrained analysis section on the existing version detail page. Results are visible to workspace members who can access that version; only the owning creator can initiate analysis.
+- Added `docs/AI_INTEGRATION.md` covering provider configuration, consent, transmitted fields, privacy/retention, billing and cost controls, validation, failures and immediate feature disablement.
+
+### Phase 5A boundaries and verification
+
+This phase does not add AI decision authority, approval overrides, deterministic rule execution, internet search, image/OCR, poster/audio/video analysis, autonomous tools, a chatbot, or an AI effect on exports. The API integration test uses a mocked Responses SDK; no paid or real API call was made. Local tests do not establish PostgreSQL concurrency behavior; production database was not accessed. Provider data-retention controls remain dependent on the configured provider account; `store=False` is not a guarantee of zero abuse-monitoring retention. Set `BRANDGUARD_AI_ENABLED=false` to disable requests immediately while leaving deterministic review, approval and export available.

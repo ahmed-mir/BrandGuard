@@ -111,7 +111,11 @@ def version_detail(request, submission_id, version_number):
     review_runs = version.review_runs.select_related("requested_by").all()
     latest_review = review_runs.first()
     from approvals.services import current_valid_approval
+    from ai_analysis.forms import AIAnalysisConsentForm
+    from ai_analysis.models import AIAnalysisRun
+    from ai_analysis.services import ai_analysis_available, ai_unavailable_reason, current_analysis_is_stale
     current_approval = current_valid_approval(submission)
+    current_policy = policy_snapshot(request.workspace)
     version_rows = []
     for historical_version in submission.versions.select_related("created_by").prefetch_related("approval_requests__decision").order_by("-version_number"):
         approval = historical_version.approval_requests.select_related("decision").order_by("-requested_at").first()
@@ -136,12 +140,18 @@ def version_detail(request, submission_id, version_number):
         })
     creator_view = request.workspace_membership.role == CREATOR
     approval_history = submission.approval_requests.select_related("content_version", "requested_by").prefetch_related("decision__reviewer").order_by("-requested_at")
+    ai_analysis_runs = list(
+        AIAnalysisRun.objects.filter(workspace_id=request.workspace.pk, content_version=version)
+        .select_related("requested_by", "content_version")
+        .prefetch_related("findings__source_version__source")[:20]
+    )
+    for ai_run in ai_analysis_runs:
+        ai_run.is_stale = current_analysis_is_stale(ai_run, submission, current_policy)
     submit_form = None
     fresh_review = None
     if creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk:
         for candidate in review_runs:
-            snapshot = policy_snapshot(request.workspace)
-            if candidate.status == ReviewRun.Status.COMPLETE and candidate.policy_snapshot == snapshot and candidate.checks.exists():
+            if candidate.status == ReviewRun.Status.COMPLETE and candidate.policy_snapshot == current_policy and candidate.checks.exists():
                 fresh_review = candidate
                 break
         if fresh_review:
@@ -161,6 +171,11 @@ def version_detail(request, submission_id, version_number):
             "submit_form": submit_form,
             "fresh_review": fresh_review,
             "can_revise": creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk,
+            "ai_analysis_runs": ai_analysis_runs,
+            "ai_analysis_available": ai_analysis_available(),
+            "ai_unavailable_reason": ai_unavailable_reason(),
+            "can_request_ai_analysis": creator_view and submission.creator_id == request.user.pk,
+            "ai_analysis_consent_form": AIAnalysisConsentForm(),
         }),
     )
 
