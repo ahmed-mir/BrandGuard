@@ -1,13 +1,24 @@
 {% extends "core/app_shell.html" %}
+{% load static %}
+{% block extra_head %}{{ block.super }}<script src="{% static 'content_reviews/js/demo_example.js' %}" defer></script>{% endblock %}
 {% block app_content %}
 <div class="review-backline"><a class="text-link" href="{% url 'app:content_reviews:list' %}">← Content reviews</a><span class="mono">TEXT SUBMISSION</span></div>
-<section class="review-form-intro"><p class="eyebrow"><span class="eyebrow__line"></span>SUBMIT FOR POLICY REVIEW</p><h2>Start with the copy itself.</h2><p>Save the exact marketing text as an immutable content version. A review will compare it with this workspace's current approved rules; no AI or external service is involved.</p></section>
+<section class="review-form-intro"><p class="eyebrow"><span class="eyebrow__line"></span>SUBMIT FOR POLICY REVIEW</p><h2>Start with the copy itself.</h2><p>Save the exact marketing text as an immutable content version. The policy review checks it against this workspace's approved rules. Optional AI advice, when available, is separate and never changes those deterministic results.</p></section>
 <form method="post" class="review-form" novalidate>
   {% csrf_token %}
   {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
   <div class="review-form__meta">
   {% for field in form %}{% if field.name != "content_text" %}<div class="form-field{% if field.errors %} form-field--error{% endif %}">{{ field.label_tag }}{{ field }}{% if field.help_text %}<p class="field__hint">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}</div>{% endif %}{% endfor %}
   </div>
+  {% if demo_example %}
+  <div class="demo-example-tools">
+    <div><strong>Trying the LumaDesk demo?</strong><p>This synthetic example is designed to exercise the approved pilot fact, disclaimer and promotional wording checks.</p></div>
+    <button class="button button--secondary" type="button" data-load-demo-example hidden>Load demo example</button>
+  </div>
+  <p class="demo-example-loaded" data-demo-example-status role="status" aria-live="polite" hidden>Example loaded. Review or edit the fields; nothing has been saved yet.</p>
+  {{ demo_example|json_script:"brandguard-demo-example" }}
+  <noscript><p class="field__hint">JavaScript is required to fill the sample automatically. You can still enter or paste content manually.</p></noscript>
+  {% endif %}
   <div class="form-field form-field--content{% if form.content_text.errors %} form-field--error{% endif %}">{{ form.content_text.label_tag }}{{ form.content_text }}{% if form.content_text.help_text %}<p class="field__hint">{{ form.content_text.help_text }}</p>{% endif %}{% for error in form.content_text.errors %}<p class="form-error" role="alert">{{ error }}</p>{% endfor %}</div>
   <div class="review-form__footer"><p>Saving creates version 1. Content versions and completed review results are retained and cannot be overwritten.</p><button class="button button--primary" type="submit">Save content version <span aria-hidden="true">→</span></button></div>
 </form>

@@ -49,6 +49,8 @@ Do not set `DATABASE_URL` to a SQLite path. The production settings reject missi
 
 5. Deploy. The build runs schema migrations against the configured database and fails the build if they fail. Review migration output; no business fixture command runs as part of deploy. Confirm `/health/` returns HTTP 200 with `{"status":"ok"}` before proceeding.
 
+For a judge session on a free web service, open the public homepage shortly before the session to allow a sleeping service to wake. The first request may take longer than later requests; no keep-alive service is configured or required by this project.
+
 ## Private brand-document storage
 
 Render web filesystems are ephemeral unless a persistent disk is attached. Free web services do not support persistent disks. BrandGuard therefore **disables source-document imports in production by default** and uses a fail-closed storage backend instead of silently writing uploads to an ephemeral directory. Existing approved source text, reviews, approvals, and TXT/PDF marketing-content exports still work. The document-import page explains that uploads are unavailable and links to manual source entry.
@@ -178,7 +180,7 @@ Render's free web services use an ephemeral filesystem, spin down after 15 minut
 
 ## Phase 4B-1 status and blockers
 
-The local application is configured for Render's Python runtime, Gunicorn WSGI, PostgreSQL, WhiteNoise, HTTPS-aware secure cookies/proxy handling, health checks, guarded S3-compatible private imports, and explicit demo bootstrap. No service, database, repository, domain, bucket, or credentials were created or configured. No live URL exists from this work. Actual PostgreSQL and object-storage integration, production demo bootstrap, deployed workflow, monitoring, backup/restore and external-device browser verification remain for Phase 4B-2/operator setup.
+The application is configured for Render's Python runtime, Gunicorn WSGI, PostgreSQL, WhiteNoise, HTTPS-aware secure cookies/proxy handling, health checks, guarded S3-compatible private imports, and explicit demo bootstrap. These notes describe the deployment preparation; the operator subsequently reports that commit `9dc94c0b5f8ed0b4db4a70aee807a015462d4f1a` was manually deployed and the judge demo was tested. This development session did not inspect the Render dashboard or independently verify that deployment. PostgreSQL concurrency, persistent object storage, monitoring, backup/restore and external-device production behavior remain operator/deployment concerns.
 ## Hackathon Demo AI configuration
 
 For clearly simulated advisory output with no external provider request, configure:

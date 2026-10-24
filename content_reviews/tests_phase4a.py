@@ -271,6 +271,7 @@ class ApprovedExportTests(ReviewFixtureMixin, TestCase):
         )
         stale_page = self.client.get(reverse("app:content_reviews:version_detail", args=[submission.pk, version.version_number]))
         self.assertNotContains(stale_page, reverse("app:content_reviews:export_txt", args=[submission.pk]))
+        self.assertContains(stale_page, "Export is blocked until the current version receives a fresh complete review and human approval.")
 
     def test_end_to_end_real_engine_review_approval_download_and_policy_invalidation(self):
         creator_client = Client()

@@ -11,9 +11,11 @@ from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.urls import resolve
+from django.utils import timezone
 
 from workspaces.models import Workspace, WorkspaceMembership
 from workspaces.permissions import resolve_current_membership, workspace_role_required
+from content_reviews.models import ContentSubmission, ContentVersion, ReviewRun
 
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
@@ -49,9 +51,95 @@ class WorkspaceAccessTests(TestCase):
         self.assertContains(response, "LumaDesk")
         self.assertContains(response, "Creator")
         self.assertNotContains(response, "Compliance score")
-        self.assertNotContains(response, "Recent submissions")
+        self.assertContains(response, "Recent submissions")
+        self.assertContains(response, "Approved source versions")
+        self.assertContains(response, "Latest policy reviews")
         self.assertContains(response, "Create a content submission")
         self.assertNotContains(response, "Compliance score")
+
+    def test_overview_counts_real_submissions_and_scopes_creator_records(self):
+        ContentSubmission.objects.create(
+            workspace=self.workspace,
+            creator=self.user,
+            title="My synthetic draft",
+            channel=ContentSubmission.Channel.EMAIL,
+        )
+        other_creator = get_user_model().objects.create_user(
+            username="second_creator", password=secrets.token_urlsafe(24)
+        )
+        WorkspaceMembership.objects.create(
+            user=other_creator, workspace=self.workspace, role=WorkspaceMembership.Role.CREATOR
+        )
+        ContentSubmission.objects.create(
+            workspace=self.workspace,
+            creator=other_creator,
+            title="Another creator private draft",
+            channel=ContentSubmission.Channel.EMAIL,
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("app:home"))
+
+        self.assertEqual(response.context["submission_count"], 1)
+        self.assertContains(response, "My synthetic draft")
+        self.assertNotContains(response, "Another creator private draft")
+
+    def test_reviewer_overview_shows_real_workspace_submissions(self):
+        ContentSubmission.objects.create(
+            workspace=self.workspace,
+            creator=self.user,
+            title="Creator draft visible to reviewer",
+            channel=ContentSubmission.Channel.EMAIL,
+        )
+        reviewer = get_user_model().objects.create_user(
+            username="workspace_reviewer", password=secrets.token_urlsafe(24)
+        )
+        WorkspaceMembership.objects.create(
+            user=reviewer, workspace=self.workspace, role=WorkspaceMembership.Role.REVIEWER
+        )
+        self.client.force_login(reviewer)
+        response = self.client.get(reverse("app:home"))
+        self.assertEqual(response.context["submission_count"], 1)
+        self.assertContains(response, "Creator draft visible to reviewer")
+
+    def test_overview_links_to_a_persisted_policy_review(self):
+        submission = ContentSubmission.objects.create(
+            workspace=self.workspace,
+            creator=self.user,
+            title="A reviewed synthetic draft",
+            channel=ContentSubmission.Channel.EMAIL,
+        )
+        version = ContentVersion.objects.create(
+            submission=submission,
+            version_number=1,
+            content_text="Synthetic marketing copy for a dashboard test.",
+            created_by=self.user,
+        )
+        submission.current_version = version
+        submission.save(update_fields=["current_version"])
+        now = timezone.now()
+        run = ReviewRun.objects.create(
+            workspace=self.workspace,
+            content_version=version,
+            requested_by=self.user,
+            status=ReviewRun.Status.COMPLETE,
+            started_at=now,
+            completed_at=now,
+            policy_revision=0,
+            policy_snapshot={},
+            engine_version="dashboard-test",
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("app:home"))
+        self.assertContains(response, "A reviewed synthetic draft")
+        self.assertContains(response, "Latest policy reviews")
+        self.assertContains(
+            response,
+            reverse(
+                "app:content_reviews:review_detail",
+                args=[submission.pk, version.version_number, run.pk],
+            ),
+        )
 
     def test_each_membership_role_is_rendered_from_database(self):
         role_labels = {
@@ -217,7 +305,7 @@ class WorkspaceExperienceTests(TestCase):
                 [],
             ),
             WorkspaceMembership.Role.REVIEWER: (
-                "Inspect submitted content",
+                "record a decision on the exact version submitted for review",
                 [],
             ),
             WorkspaceMembership.Role.ADMIN: (
@@ -266,6 +354,34 @@ class WorkspaceExperienceTests(TestCase):
             self.assertIsNotNone(resolve(path))
         self.assertContains(response, '<a href="/app/reviews/">')
         self.assertNotContains(response, '<a href="/app/approval-inbox/')
+
+    def test_synthetic_workspace_shows_role_aware_dismissible_judge_walkthrough(self):
+        self.workspace.is_demo = True
+        self.workspace.save(update_fields=["is_demo"])
+        creator = self.create_member("walkthrough_creator", WorkspaceMembership.Role.CREATOR)
+        self.client.force_login(creator)
+        response = self.client.get(reverse("app:home"))
+        self.assertContains(response, "A short product walkthrough")
+        self.assertContains(response, "Create the sample")
+        self.assertContains(response, reverse("app:content_reviews:create"))
+        self.assertContains(response, "separate Reviewer demo account")
+        self.assertContains(response, "data-dismiss-demo-walkthrough")
+        self.assertContains(response, "data-demo-guide-key")
+        self.assertNotContains(response, "password=")
+
+        reviewer = self.create_member("walkthrough_reviewer", WorkspaceMembership.Role.REVIEWER)
+        self.client.force_login(reviewer)
+        reviewer_page = self.client.get(reverse("app:home"))
+        self.assertContains(reviewer_page, "Make a human decision")
+        self.assertContains(reviewer_page, reverse("app:approvals:inbox"))
+        self.assertNotContains(reviewer_page, reverse("app:content_reviews:create"))
+
+    def test_non_demo_workspace_does_not_show_the_judge_walkthrough(self):
+        creator = self.create_member("ordinary_creator", WorkspaceMembership.Role.CREATOR)
+        self.client.force_login(creator)
+        response = self.client.get(reverse("app:home"))
+        self.assertNotContains(response, "A short product walkthrough")
+        self.assertNotContains(response, "data-demo-walkthrough")
 
     def test_admin_can_view_only_current_workspace_member_records(self):
         admin = self.create_member("workspace_admin", WorkspaceMembership.Role.ADMIN)

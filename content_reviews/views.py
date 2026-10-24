@@ -70,6 +70,19 @@ def submission_list(request):
 @workspace_role_required(WorkspaceMembership.Role.CREATOR)
 def submission_create(request):
     form = ContentSubmissionForm(request.POST or None)
+    demo_example = None
+    if request.workspace.is_demo:
+        demo_example = {
+            "title": "LumaDesk internal pilot announcement",
+            "channel": ContentSubmission.Channel.EMAIL,
+            "audience": "Prospective team leads",
+            "campaign_purpose": "Introduce the fictional internal pilot",
+            "content_text": (
+                "Up to 20% faster task completion in our internal pilot; results vary. "
+                "LumaDesk is a productivity miracle. We guarantee 100% faster task "
+                "completion for every team."
+            ),
+        }
     if request.method == "POST" and form.is_valid():
         try:
             submission, version = create_submission(
@@ -87,7 +100,10 @@ def submission_create(request):
         else:
             messages.success(request, "Content saved as immutable version 1. Start a review when you are ready.")
             return redirect("app:content_reviews:version_detail", submission_id=submission.pk, version_number=version.version_number)
-    return render(request, "content_reviews/submission_form.html", _context(request, "New content submission", {"form": form}))
+    return render(request, "content_reviews/submission_form.html", _context(request, "New content submission", {
+        "form": form,
+        "demo_example": demo_example,
+    }))
 
 
 @require_GET

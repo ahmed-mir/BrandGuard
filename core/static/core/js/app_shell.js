@@ -1,4 +1,27 @@
 (() => {
+  const demoGuide = document.querySelector("[data-demo-walkthrough]");
+  if (demoGuide) {
+    const dismiss = demoGuide.querySelector("[data-dismiss-demo-walkthrough]");
+    const guideKey = `brandguard-demo-guide:${demoGuide.dataset.demoGuideKey || "workspace"}`;
+    try {
+      if (window.sessionStorage.getItem(guideKey) === "dismissed") demoGuide.hidden = true;
+    } catch (_error) {
+      // The walkthrough still works if browser storage is unavailable.
+    }
+    if (dismiss) {
+      dismiss.hidden = false;
+      dismiss.addEventListener("click", () => {
+        demoGuide.hidden = true;
+        try {
+          window.sessionStorage.setItem(guideKey, "dismissed");
+        } catch (_error) {
+          // Dismiss for this page view when session storage is unavailable.
+        }
+        document.getElementById("workspace-welcome-title")?.focus();
+      });
+    }
+  }
+
   const sidebar = document.getElementById("app-sidebar");
   const main = document.getElementById("app-main");
   const toggle = document.querySelector("[data-app-menu-toggle]");

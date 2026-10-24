@@ -186,9 +186,9 @@ Phases 0 through 4A provide the product introduction, workspace/account foundati
 
 No Render service, GitHub repository, cloud database, S3 bucket, custom domain or production credentials were created or changed. A local TCP listener was present on port 5432, but connection authentication failed because no password/isolated test database was configured. PostgreSQL migrations, row-lock concurrency and transactional approvals therefore remain untested against PostgreSQL; the local suite uses SQLite and is not described as PostgreSQL coverage. The S3 storage settings/backend can be configured without credentials for local tests, but no provider connectivity/private bucket policy was verified. No production demo bootstrap was executed. See `docs/DEPLOYMENT.md` for Phase 4B-2 tasks and limitations.
 
-## Phase 4B-2 — live Render deployment (not started)
+## Phase 4B-2 - live Render deployment (operator-reported complete)
 
-Operator-led GitHub push, Render PostgreSQL and web-service creation, secret entry, first deployment, private storage decision, authorized demo bootstrap, live workflow verification, backups/monitoring, and custom domain work remain deferred. This phase does not claim that BrandGuard is live.
+The operator later confirmed BrandGuard was deployed to the existing Render service. Initial core workflow verification was intentionally reduced due to the hackathon timeline; this repository environment did not run PostgreSQL integration tests. Persistent private document storage, backup/restore verification, monitoring and custom-domain configuration remain infrastructure/operator work.
 
 
 ## Phase 5A - source-grounded AI advisory analysis (implemented locally; optional)
@@ -221,8 +221,20 @@ Remaining risks: local tests used SQLite while production uses PostgreSQL; authe
 
 One authorized local Responses API request was attempted using synthetic LumaDesk content against a temporary SQLite database. The run was persisted as `FAILED` with `PROVIDER_RATE_LIMIT`; zero AI findings were saved. The OpenAI adapter is configured with SDK retries disabled. No retry was made, and no Render/production data was accessed. This does not validate successful real-provider output; account rate/quota access must be resolved before another separately authorized attempt.
 
-## Phase 5D-C ? zero-cost Demo AI mode (implemented locally)
+## Phase 5D-C - zero-cost Demo AI mode (implemented and deployed; operator-reported)
 
 Added the separate default-off `BRANDGUARD_AI_DEMO_MODE` flag. Demo mode requires no API key and only runs when `BRANDGUARD_AI_ENABLED=false`; mixed flags fail closed. The repository-controlled adapter uses retrieved approved LumaDesk passages, stores runs/findings using the existing AI tables with provider/model identity `demo` / `simulated-brandguard-demo`, and sends output through the existing server-side snapshot, source, citation, content-span and schema validation. The UI identifies results as simulated and explicitly says no external AI provider was contacted. No migration was needed. Demo results do not alter deterministic review, approvals or exports.
 
 Validation on the local SQLite test configuration: Django system check passed; migration drift check reported no changes; 36 `ai_analysis` tests passed; the full suite passed 205 tests; `pip check` found no broken requirements; and `git diff --check` passed. No real provider request was made during Phase 5D-C tests. PostgreSQL behavior and a successful real provider response remain unverified.
+
+The operator reports that commit `9dc94c0b5f8ed0b4db4a70aee807a015462d4f1a` was manually deployed for the judge demo and tested successfully with real AI disabled and Demo AI enabled. This repository session did not inspect Render or independently repeat production tests. Demo mode makes no external request; the prior Phase 5D-B rate-limit failure remains the only real-provider attempt. The deployed demo setting should remain `BRANDGUARD_AI_ENABLED=false` with `BRANDGUARD_AI_DEMO_MODE=true`.
+
+## Phase 6A/6B - judge access and product polish (implemented locally; deployment not updated)
+
+Phase 6A reduced demo friction without weakening authentication: the landing/login flow explains the synthetic workspace and separate role accounts, the creator can load the canonical synthetic copy without submitting it, and the authenticated demo workspace has a dismissible, role-aware walkthrough. No public or passwordless demo login was introduced. A stale approval warning makes the export block explicit.
+
+Phase 6B refined the public CTA and workflow explanation, including a direct link to the existing login route with `/app/` as its safe return path. The illustrative landing preview now uses the same synthetic naming scenario, rule identifier, and verbatim excerpt as the approved LumaDesk seed source pack while retaining a clear no-live-review disclosure. The workspace overview now displays real workspace-scoped counts for approved source versions, visible submissions and requests awaiting a reviewer, alongside recent submissions and actual deterministic policy runs. Creator queries remain restricted to that creator's own submissions and review runs. Empty states point to existing routes. Finding classifications carry a visible text label and a distinct non-colour marker; evidence copy explicitly identifies the approved source version cited. Stale approval copy states that export is blocked pending a fresh review and approval. Demo AI remains visibly described as simulated and separate from deterministic review.
+
+No approval, review, export, AI-provider, or permission service behavior was changed. No migration or dependency was added. Validation on the local SQLite configuration: `manage.py check`, `makemigrations --check --dry-run`, `pip check`, and `git diff --check` passed; the full suite passed 212 tests. A browser automation surface was unavailable in this environment, so rendered screenshot/viewport verification was not performed. PostgreSQL and production were not accessed or modified.
+
+The focused judge path is: landing page -> **Try the BrandGuard demo** -> sign in with privately supplied Creator credentials -> workspace overview -> approved Brand Sources -> New Review and **Load demo example** -> save and run deterministic review -> inspect the cited source -> run the explicitly disclosed Demo AI analysis -> revise, compare and resubmit -> sign out -> sign in as the separate Reviewer -> make a human decision -> sign back in as Creator to export. The stale approval path is best demonstrated only with disposable local demo records, not by changing shared judge content or policy.

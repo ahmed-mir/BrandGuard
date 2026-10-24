@@ -129,8 +129,12 @@ class AuthenticationFlowTests(TestCase):
         response = self.client.get(reverse("accounts:login"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "No public registration")
+        self.assertContains(response, "Synthetic LumaDesk demo")
+        self.assertContains(response, "Creator, Brand manager and Reviewer")
+        self.assertContains(response, "access details supplied with the demo")
         self.assertNotContains(response, 'name="role"')
         self.assertNotContains(response, 'name="workspace_id"')
+        self.assertNotContains(response, "seed_demo")
 
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])

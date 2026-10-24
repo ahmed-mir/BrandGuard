@@ -467,7 +467,7 @@ class ReviewPermissionAndFlowTests(ReviewFixtureMixin, TestCase):
         detail_url = reverse("app:content_reviews:review_detail", args=[submission.pk, 1, run.pk])
         detail = self.client.get(detail_url)
         self.assertEqual(detail.status_code, 200)
-        self.assertContains(detail, "View approved source evidence")
+        self.assertContains(detail, "See the approved source behind this finding")
         self.assertContains(detail, self.fact_excerpt)
         self.assertEqual(detail.context["version"].content_hash, version.content_hash)
         self.assertEqual(detail.context["review"].policy_snapshot_hash, run.policy_snapshot_hash)
@@ -577,3 +577,38 @@ class ReviewPermissionAndFlowTests(ReviewFixtureMixin, TestCase):
             ReviewCheck.Outcome.NOT_VERIFIED,
             ReviewCheck.Outcome.CONTRADICTED,
         ]).exists())
+
+
+@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
+class DemoSubmissionExampleTests(TestCase):
+    def setUp(self):
+        self.workspace = Workspace.objects.create(
+            name="LumaDesk", slug=f"lumadesk-demo-form-{uuid.uuid4().hex[:8]}", is_demo=True
+        )
+        self.creator = User.objects.create_user(
+            username="demo_form_creator", password="A-strong-test-password-123!"
+        )
+        WorkspaceMembership.objects.create(
+            user=self.creator, workspace=self.workspace,
+            role=WorkspaceMembership.Role.CREATOR, is_demo=True,
+        )
+        self.client.force_login(self.creator)
+
+    def test_demo_creator_can_load_synthetic_example_without_saving_or_running_it(self):
+        response = self.client.get(reverse("app:content_reviews:create"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Load demo example")
+        self.assertContains(response, 'type="button" data-load-demo-example hidden')
+        self.assertContains(response, "brandguard-demo-example")
+        self.assertContains(response, "Up to 20% faster task completion in our internal pilot; results vary.")
+        self.assertContains(response, "We guarantee 100% faster task completion for every team.")
+        self.assertContains(response, "/static/content_reviews/js/demo_example.js")
+        self.assertFalse(ContentSubmission.objects.filter(workspace=self.workspace).exists())
+
+    def test_sample_is_not_exposed_for_an_ordinary_workspace(self):
+        self.workspace.is_demo = False
+        self.workspace.save(update_fields=["is_demo"])
+        response = self.client.get(reverse("app:content_reviews:create"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Load demo example")
+        self.assertNotContains(response, "brandguard-demo-example")

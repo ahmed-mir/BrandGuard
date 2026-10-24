@@ -35,7 +35,14 @@
         </div>
         <button class="button button--primary login-submit" type="submit">Sign in <span aria-hidden="true">→</span></button>
       </form>
-      <div class="login-help"><span class="login-help__rule"></span><p>No public registration. Accounts are provisioned for a workspace. For the local LumaDesk demo, create them with the documented <strong>seed_demo</strong> command.</p></div>
+      <div class="login-help login-help--demo" aria-label="Judge demo access">
+        <span class="login-help__rule" aria-hidden="true"></span>
+        <div>
+          <p><strong>Synthetic LumaDesk demo</strong></p>
+          <p>Separate Creator, Brand manager and Reviewer accounts are used to demonstrate the workspace. Use the access details supplied with the demo; passwords are never displayed here. Sign out before changing roles.</p>
+          <p>No public registration is available.</p>
+        </div>
+      </div>
       <a class="login-home" href="{% url 'landing' %}">← Back to BrandGuard</a>
     </div>
   </main>
