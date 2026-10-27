@@ -132,14 +132,14 @@ class ApprovalDecision(models.Model):
             if self.action == self.Action.CHANGES_REQUESTED and len(self.comment.strip()) < 10:
                 errors["comment"] = "Add a clear comment of at least 10 characters when requesting changes."
             if self.action == self.Action.APPROVED:
-                open_high_ids = list(request.review_run.findings.filter(
-                    rule__severity="HIGH", resolution_status="OPEN"
+                high_ids = list(request.review_run.findings.filter(
+                    rule__severity="HIGH"
                 ).order_by("id").values_list("id", flat=True))
-                if open_high_ids and len(self.override_reason.strip()) < 10:
-                    errors["override_reason"] = "A meaningful reason is required to override unresolved high-severity findings."
-                expected_ids = [str(item) for item in open_high_ids]
+                if high_ids and len(self.override_reason.strip()) < 10:
+                    errors["override_reason"] = "A meaningful reason is required to override high-severity findings."
+                expected_ids = [str(item) for item in high_ids]
                 if self.overridden_finding_ids != (expected_ids if self.override_reason.strip() else []):
-                    errors["overridden_finding_ids"] = "Override records must identify the exact open high-severity findings."
+                    errors["overridden_finding_ids"] = "Override records must identify the exact high-severity findings in the saved review."
         if errors:
             raise ValidationError(errors)
 

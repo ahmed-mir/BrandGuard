@@ -357,6 +357,48 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
   .member-row { grid-template-columns: minmax(0,1fr); gap: .7rem; padding: .9rem .1rem; }
   .member-row__facts { padding-left: 2.8rem; }
 }
+
+/* Version-scoped collaboration and append-only finding history. */
+.review-discussion { margin-top: 1.5rem; padding: 1.25rem 0; border-block: 1px solid var(--border-dark); }
+.review-collaboration-note,.review-collaboration-empty { margin: .55rem 0; color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.review-comment-list { display: grid; gap: 0; margin: 1rem 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
+.review-comment { min-width: 0; padding: .8rem .1rem; border-bottom: 1px solid var(--border); }
+.review-comment__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .7rem; color: var(--muted); font-size: .7rem; }
+.review-comment__meta strong { color: var(--ink); font-size: .78rem; font-weight: 620; }
+.review-comment__meta time { margin-left: auto; }
+.review-comment > p { margin: .45rem 0 0; color: var(--ink-soft); font-size: .85rem; line-height: 1.65; overflow-wrap: anywhere; }
+.review-comment-form { display: grid; gap: .45rem; margin-top: .9rem; }
+.review-comment-form label,.finding-resolution-form label { color: var(--ink); font-size: .76rem; font-weight: 600; }
+.review-comment-form textarea,.finding-resolution-form input,.finding-resolution-form select { width: 100%; min-width: 0; }
+.review-comment-form__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+.review-comment-form__footer small,.finding-resolution-form small { color: var(--muted); font-size: .68rem; line-height: 1.5; }
+.finding-collaboration { display: grid; gap: .75rem; margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border); }
+.finding-collaboration__status { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem .65rem; }
+.finding-collaboration__status .mono { color: var(--muted); font-size: .58rem; }
+.finding-collaboration__status strong { color: var(--ink); font-size: .8rem; }
+.finding-resolution-history { border-block: 1px solid var(--border); }
+.finding-resolution-history summary { padding: .6rem .1rem; color: var(--teal); font-size: .75rem; font-weight: 600; cursor: pointer; }
+.finding-resolution-history ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.finding-resolution-history li { padding: .65rem .15rem; border-top: 1px solid var(--border); }
+.finding-resolution-history li > p:first-child { margin: 0; color: var(--ink); font-size: .78rem; }
+.finding-resolution-history li > small { color: var(--muted); font-size: .67rem; }
+.finding-resolution-history__note { margin: .25rem 0 0; color: var(--ink-soft); font-size: .76rem; line-height: 1.55; overflow-wrap: anywhere; }
+.finding-resolution-form { display: grid; gap: .6rem; padding: .75rem; background: var(--canvas); border: 1px solid var(--border); }
+.finding-resolution-form__fields { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: .75rem; }
+.finding-resolution-form__fields > div { display: grid; align-content: start; gap: .3rem; min-width: 0; }
+.finding-discussion { min-width: 0; }
+.finding-discussion h6 { margin: .15rem 0; color: var(--ink); font-size: .76rem; font-weight: 650; }
+.review-comment-form--compact { margin-top: .65rem; }
+.review-comment-form--compact textarea { min-height: 4rem; }
+.finding-collaboration button,.review-comment-form button { justify-self: start; }
+.review-discussion :focus-visible,.finding-collaboration :focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .review-discussion { padding: 1rem 0; }
+  .review-comment__meta { gap: .2rem .5rem; }
+  .review-comment__meta time { margin-left: 0; width: 100%; }
+  .finding-resolution-form__fields { grid-template-columns: minmax(0,1fr); }
+  .review-comment-form__footer { align-items: flex-start; flex-direction: column; }
+}
 @media (prefers-reduced-motion: reduce) {
   .app-menu-enhanced .app-sidebar { transition: none; }
 }

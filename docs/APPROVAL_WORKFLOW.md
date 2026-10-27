@@ -52,13 +52,13 @@ Only active `REVIEWER` and `ADMIN` membership can access the approval inbox and 
 
 **Request changes** requires a 10–3,000 character explanation. It stores the reviewer and time and changes the request to `CHANGES_REQUESTED`; the creator sees the comment and version it refers to. A new content version and fresh review are required before the creator can submit again.
 
-**Approve version** runs in a transaction and rechecks workspace permission, self-approval, pending state, current version ID, SHA-256, exact complete review, current policy revision/hash/source IDs, and absence of a previous decision. The decision binds the request's content and policy snapshots. If the exact review has any high-severity findings, all of which remain `OPEN` in this phase, approval is blocked unless the reviewer supplies a meaningful reason (at least 10 characters). The decision records the override reason and the high-finding IDs. Findings are not hidden, resolved or dismissed by the override. No override is needed when there are no high-severity findings.
+**Approve version** runs in a transaction and rechecks workspace permission, self-approval, pending state, current version ID, SHA-256, exact complete review, current policy revision/hash/source IDs, and absence of a previous decision. The decision binds the request's content and policy snapshots. If the exact review has any high-severity findings, approval is blocked unless the reviewer supplies a meaningful reason (at least 10 characters). The decision records the override reason and the high-finding IDs. Findings are not hidden, dismissed or removed by the override. No override is needed when there are no high-severity findings.
 
 Both actions are POST-only and rely on Django CSRF middleware. The request's one-decision constraint and transaction locks prevent a second decision from replacing the first. Database errors under SQLite contention are returned as a safe retry instruction when detected.
 
 ## Current approval validation
 
-`approvals.services.current_valid_approval(submission)` returns `{valid, approval, decision, reason}`. It selects the latest historical approved request and checks that its content version is still current, the saved text recomputes to the approved SHA-256, the decision and review bind the same content and policy identity, the review is complete and attached to that exact version, the request/decision snapshots match the active workspace policy, and any high-severity override IDs still match the original open findings. Phase 4A export requests call this service every time; a displayed status alone is not sufficient.
+`approvals.services.current_valid_approval(submission)` returns `{valid, approval, decision, reason}`. It selects the latest historical approved request and checks that its content version is still current, the saved text recomputes to the approved SHA-256, the decision and review bind the same content and policy identity, the review is complete and attached to that exact version, the request/decision snapshots match the active workspace policy, and any high-severity override IDs still match the original findings. Operational resolution status does not change this identity check. Phase 4A export requests call this service every time; a displayed status alone is not sufficient.
 
 Reasons distinguish no approval, content changes, content-hash mismatch, policy changes and invalid/missing review. A new version or policy snapshot leaves every prior request, decision, review and finding intact, while making the older approval fail the current validation.
 
@@ -80,6 +80,9 @@ Every data query uses the active server-resolved workspace. Creator submission a
 - `POST /app/reviews/<submission-id>/submit/` — create an approval request for the current version and selected fresh review.
 - `GET /app/approvals/` — reviewer/admin inbox.
 - `GET/POST /app/approvals/<request-id>/` — inspect the exact request and submit a request-changes or approve decision. `GET` never performs a decision.
+- `POST /app/reviews/<submission-id>/versions/<version>/comments/` — append version-level discussion.
+- `POST /app/reviews/<submission-id>/versions/<version>/findings/<finding-id>/comments/` — append finding-specific discussion.
+- `POST /app/reviews/<submission-id>/versions/<version>/findings/<finding-id>/resolution/` — append a finding resolution transition.
 - `GET /app/reviews/<submission-id>/export/txt/` and `/export/pdf/` — Phase 4A protected downloads for the current valid approved version only. See `docs/EXPORTS.md`.
 
 ## Concurrency, audit and limitations
@@ -88,7 +91,17 @@ On PostgreSQL, actions lock the workspace, submission and approval request rows 
 
 SQLite does not implement effective `SELECT ... FOR UPDATE`; it is a local development database, not a concurrent multi-reviewer production guarantee. Constraints prevent silent overwrite/duplicate records and lock errors prompt a retry, but PostgreSQL must be configured and concurrency-tested before production use. This project does not claim tamper-proof audit storage: application-level immutable model methods and protected records are not a substitute for external append-only audit infrastructure.
 
-Export remains limited to the current approved version in TXT/PDF form, uses the saved records, and does not create a signature or separate export event record. There are no notifications, automatic correction application, resolution/dismissal workflow for findings, or separate multi-stage reviewer chain. No AI or universal factual verification is involved. See `docs/REVIEW_ENGINE.md` and `docs/EXPORTS.md` for limitations.
+## Collaborative discussion and finding resolution
+
+`content_reviews.ReviewComment` stores append-only comments against an exact content version, optionally linked to a finding from that version. Comments include author, role snapshot, workspace, timestamp and an idempotency token. General discussion and each finding thread are displayed oldest first. Posting the same request token again returns the existing comment; comments cannot be edited or deleted.
+
+`content_reviews.FindingResolutionEvent` is an immutable transition record with finding, original content version, workspace, actor/role, previous and new state, optional note, timestamp and request token. The convenience `ReviewFinding.resolution_status` displays the latest state. The allowed transitions are `OPEN -> ACKNOWLEDGED | RESOLVED | WONT_FIX`, `ACKNOWLEDGED -> OPEN | RESOLVED | WONT_FIX`, and `RESOLVED | WONT_FIX -> OPEN`. Repeating the current state is a safe no-op. `RESOLVED` requires a note; `WONT_FIX` requires a reason of at least 10 characters. A creator may acknowledge a finding on their own submission and mark it resolved only after saving a newer content version; creators cannot mark it `WONT_FIX`. Reviewers, brand managers and workspace admins may use the permitted transition graph in their workspace.
+
+These statuses are operational collaboration annotations. They do not change the finding's original classification, matched text, offsets or evidence; do not dismiss a rule result; do not create approval; and do not count as approval or waiver. A later content version gets its own review findings and independent resolution history. Every high-severity finding in an approval's exact review still requires a documented reviewer override, whatever its collaboration status. Self-approval, stale-policy/content checks and export eligibility remain unchanged.
+
+The workspace lock serializes resolution updates on PostgreSQL. SQLite does not provide equivalent row-lock concurrency guarantees. Requests include an idempotency token and expected prior status to reject stale forms; database uniqueness is the final duplicate-event guard. No PostgreSQL concurrency integration test is claimed by the SQLite suite.
+
+Export remains limited to the current approved version in TXT/PDF form, uses the saved records, and does not create a signature or separate export event record. There are no notifications, automatic correction application or separate multi-stage reviewer chain. No AI or universal factual verification is involved. See `docs/REVIEW_ENGINE.md` and `docs/EXPORTS.md` for limitations.
 
 ## Local Windows PowerShell commands
 

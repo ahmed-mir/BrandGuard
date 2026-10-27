@@ -1,0 +1,56 @@
+<section class="finding-collaboration" aria-label="Finding collaboration">
+  <div class="finding-collaboration__status"><span class="mono">OPERATIONAL STATUS</span><strong>{{ finding.get_resolution_status_display }}</strong></div>
+  <p class="review-collaboration-note">Status tracks team follow-up only. The original deterministic finding, classification and evidence remain unchanged; this status does not approve the content or waive a high-severity override.</p>
+
+  {% if finding.resolution_history %}
+    <details class="finding-resolution-history">
+      <summary>Resolution history · {{ finding.resolution_history|length }} change{{ finding.resolution_history|length|pluralize }}</summary>
+      <ol aria-label="Finding resolution history, oldest first">
+        {% for event in finding.resolution_history %}
+          <li>
+            <p><strong>{{ event.get_previous_status_display }}</strong><span aria-hidden="true"> → </span><strong>{{ event.get_new_status_display }}</strong></p>
+            <small>{{ event.actor.get_full_name|default:event.actor.username }} · {{ event.actor_role_label }} · <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"M j, Y · H:i T" }}</time></small>
+            {% if event.note %}<p class="finding-resolution-history__note">{{ event.note|linebreaksbr }}</p>{% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </details>
+  {% else %}
+    <p class="review-collaboration-empty">No status changes have been recorded. This finding began as Open.</p>
+  {% endif %}
+
+  {% if finding.resolution_choices %}
+    <form class="finding-resolution-form" method="post" action="{% url 'app:content_reviews:finding_resolution' submission.id version.version_number finding.id %}">
+      {% csrf_token %}
+      {{ finding.resolution_form.expected_status }}
+      {{ finding.resolution_form.idempotency_key }}
+      <div class="finding-resolution-form__fields">
+        <div><label for="{{ finding.resolution_form.new_status.id_for_label }}">{{ finding.resolution_form.new_status.label }}</label>{{ finding.resolution_form.new_status }}</div>
+        <div><label for="{{ finding.resolution_form.note.id_for_label }}">{{ finding.resolution_form.note.label }}</label>{{ finding.resolution_form.note }}<small>Explain how it was addressed; a reason is required for Won’t fix.</small></div>
+      </div>
+      <button class="button button--secondary" type="submit">Record status change</button>
+    </form>
+  {% endif %}
+
+  <div class="finding-discussion">
+    <h6>Finding discussion</h6>
+    {% if finding.collaboration_comments %}
+      <ol class="review-comment-list" aria-label="Finding discussion, oldest first">
+        {% for comment in finding.collaboration_comments %}
+          <li class="review-comment"><div class="review-comment__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username }}</strong><span>{{ comment.author_role_label }}</span><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:"M j, Y · H:i T" }}</time></div><p>{{ comment.body|linebreaksbr }}</p></li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="review-collaboration-empty">No comments on this finding yet.</p>
+    {% endif %}
+    {% if can_comment %}
+      <form class="review-comment-form review-comment-form--compact" method="post" action="{% url 'app:content_reviews:finding_comment' submission.id version.version_number finding.id %}">
+        {% csrf_token %}
+        <label for="{{ finding.comment_form.body.id_for_label }}">Add a finding comment</label>
+        {{ finding.comment_form.body }}
+        {{ finding.comment_form.idempotency_key }}
+        <div class="review-comment-form__footer"><small>Comments are append-only.</small><button type="submit" class="button button--secondary">Post comment</button></div>
+      </form>
+    {% endif %}
+  </div>
+</section>

@@ -14,6 +14,9 @@ urlpatterns = [
     path("<uuid:submission_id>/submit/", views.submit_submission, name="submit"),
     path("<uuid:submission_id>/compare/", views.compare_versions, name="compare"),
     path("<uuid:submission_id>/versions/<int:version_number>/", views.version_detail, name="version_detail"),
+    path("<uuid:submission_id>/versions/<int:version_number>/comments/", views.post_version_comment, name="version_comment"),
+    path("<uuid:submission_id>/versions/<int:version_number>/findings/<uuid:finding_id>/comments/", views.post_finding_comment, name="finding_comment"),
+    path("<uuid:submission_id>/versions/<int:version_number>/findings/<uuid:finding_id>/resolution/", views.update_finding_resolution, name="finding_resolution"),
     path(
         "<uuid:submission_id>/versions/<int:version_number>/run/",
         views.review_start,

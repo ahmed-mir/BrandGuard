@@ -110,8 +110,11 @@ def approve_version(*, request_id, workspace, actor, override_reason=""):
     approval = _locked_request(request_id=request_id, workspace=workspace, actor=actor)
     _ensure_pending(approval, actor)
     _validate_fresh_review(approval, approval.workspace)
+    # Operational collaboration states never clear a deterministic finding for
+    # approval purposes. A high-severity finding still needs an explicit
+    # reviewer override even if it is acknowledged/resolved/won't-fix.
     high_ids = list(approval.review_run.findings.filter(
-        rule__severity="HIGH", resolution_status="OPEN"
+        rule__severity="HIGH"
     ).order_by("id").values_list("id", flat=True))
     reason = (override_reason or "").strip()
     if high_ids and len(reason) < 10:
@@ -230,11 +233,11 @@ def current_valid_approval(submission):
     elif policy_snapshot(Workspace.objects.get(pk=submission.workspace_id)) != approval.policy_snapshot:
         reason = "Previous approval is no longer current because the content or approved brand policy changed."
     else:
-        open_high_ids = list(approval.review_run.findings.filter(
-            rule__severity="HIGH", resolution_status="OPEN"
+        high_ids = list(approval.review_run.findings.filter(
+            rule__severity="HIGH"
         ).order_by("id").values_list("id", flat=True))
-        expected_override_ids = [str(item) for item in open_high_ids] if decision.override_reason.strip() else []
-        if (open_high_ids and len(decision.override_reason.strip()) < 10) or decision.overridden_finding_ids != expected_override_ids:
+        expected_override_ids = [str(item) for item in high_ids] if decision.override_reason.strip() else []
+        if (high_ids and len(decision.override_reason.strip()) < 10) or decision.overridden_finding_ids != expected_override_ids:
             reason = "The recorded high-severity override no longer matches the original review findings."
         else:
             return {"valid": True, "approval": approval, "decision": decision, "reason": "This exact version remains approved against the current policy."}

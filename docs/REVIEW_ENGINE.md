@@ -9,7 +9,7 @@ BrandGuard Phase 3A accepts plain-text marketing content and performs bounded de
 - `ReviewRun` stores the requested actor, status and timestamps, engine version, policy revision/hash, a JSON copy of the Phase 2A snapshot, a unique request token, safe failure information and incomplete/not-implemented check metadata. Terminal runs cannot be changed or deleted through model methods.
 - `ReviewPolicyVersion` stores each approved `SourceVersion` identity and its content hash from the snapshot. Future-effective source versions are kept in the snapshot with `applied=False` and a reason; rules from them are not evaluated.
 - `ReviewCheck` stores one outcome per saved rule. Outcomes include no violation, finding, supported, contradicted, not verified, not applicable, needs human review, not completed and failed.
-- `ReviewFinding` exists only for a real result against submitted content. It retains the `BrandRule`, exact `SourceVersion`, check/run, finding type and origin, optional classification, an initial `OPEN` resolution status, exact matched text and content offsets (or explicit location unavailable), explanation, evidence excerpt and only a configured correction where one exists. Findings remain immutable in Phase 3A; no resolve/dismiss workflow is exposed.
+- `ReviewFinding` exists only for a real result against submitted content. It retains the `BrandRule`, exact `SourceVersion`, check/run, finding type and origin, optional classification, exact matched text and content offsets (or explicit location unavailable), explanation, evidence excerpt and only a configured correction where one exists. Deterministic identity/evidence fields stay immutable. The current operational `resolution_status` is a separate convenience state whose append-only events are described below; it does not change or dismiss the finding.
 
 Foreign keys use protective deletion behavior. Uniqueness constraints prevent duplicate content-version numbers, duplicate runs for a workspace/request token, duplicate rule checks per run and duplicate source pins per run. Workspace and execution indexes support review-list and result queries.
 
@@ -59,6 +59,10 @@ Submission and review endpoints resolve workspace and role from the active serve
 
 Phase 3B adds creator revisions and approval decisions without changing the deterministic evaluator. A revision creates another immutable `ContentVersion`; all `ReviewRun`, check, finding and evidence rows stay linked to the version actually evaluated. The newest version must receive a new complete run before an approval request can be submitted. The request pins the review run and that run's exact policy snapshot. Reviewers see findings and evidence through the approval detail page; approval does not alter the finding records.
 
+## Discussion and resolution history
+
+Version-level `ReviewComment` records and finding-specific comments are append-only, workspace-scoped and bound to the exact `ContentVersion`. Feeds display oldest first. `FindingResolutionEvent` records each allowed state transition with actor, role-at-action, timestamp and optional note. The latest state is mirrored in `ReviewFinding.resolution_status`; the event stream is the audit history. New content versions never inherit old finding state/history. Operational status never changes the saved deterministic classification or evidence and never creates an approval. High-severity findings continue to require the existing documented override even when marked acknowledged, resolved or won't fix. See `docs/APPROVAL_WORKFLOW.md` for transitions and role rules.
+
 See `docs/APPROVAL_WORKFLOW.md` for request/decision models, state transitions, review freshness, policy invalidation, high-severity overrides, role boundaries and database concurrency assumptions.
 
 ## Current limitations
@@ -66,7 +70,7 @@ See `docs/APPROVAL_WORKFLOW.md` for request/decision models, state transitions, 
 - Plain text only; no campaign file upload, image, OCR, scanned text, PDF/DOCX parsing, formatting analysis or asset review.
 - Synchronous execution; no queue, cancellation, retry dashboard or streaming progress. Input and result limits bound the work.
 - Deterministic checks remain independent from optional AI advisory analysis. AI does not change these runs, findings, submission state, approval eligibility or export validity. See `docs/AI_INTEGRATION.md` for Phase 5A behavior.
-- No semantic deterministic rules, paraphrase matching, synonym resolution, general factual verification, campaign content uploads, automatic suggested-text replacement, notifications or tamper-proof auditing.
+- No semantic deterministic rules, paraphrase matching, synonym resolution, general factual verification, campaign content uploads, automatic suggested-text replacement, external notifications or tamper-proof auditing.
 - Required-term and disclaimer applicability is only as good as the explicit saved scope/trigger. If policy configuration is too broad or ambiguous, the engine will not manufacture a violation.
 - Approved facts use a deterministic, narrow comparison subset and can classify only the supported quantity/metric combinations. `SUPPORTED` means the claim text matches that stored structured statement; it does not prove that the underlying statement is externally true.
 - Future-effective sources are excluded; expired-source semantics do not exist in the source schema.

@@ -14,8 +14,10 @@ from workspaces.page_context import app_page_context
 from workspaces.permissions import workspace_member_required, workspace_role_required
 from brand_sources.services import policy_snapshot
 
+from .collaboration import add_review_comment, change_finding_resolution, resolution_choices
+from .collaboration_forms import FindingResolutionForm, ReviewCommentForm
 from .forms import ContentRevisionForm, ContentSubmissionForm, StartReviewForm, SubmitForApprovalForm
-from .models import ContentSubmission, ContentVersion, ReviewCheck, ReviewFinding, ReviewRun
+from .models import ContentSubmission, ContentVersion, FindingResolutionEvent, ReviewCheck, ReviewComment, ReviewFinding, ReviewRun
 from .services import create_revision, create_submission, execute_review
 
 
@@ -47,6 +49,17 @@ def _submissions(request):
 def _submission(request, submission_id):
     submission = get_object_or_404(_submissions(request), pk=submission_id)
     return submission
+
+
+def _can_collaborate_on_submission(request, submission):
+    return (
+        request.workspace_membership.role != CREATOR
+        or submission.creator_id == request.user.pk
+    )
+
+
+def _role_label(role):
+    return dict(WorkspaceMembership.Role.choices).get(role, role)
 
 
 @require_GET
@@ -163,6 +176,17 @@ def version_detail(request, submission_id, version_number):
     )
     for ai_run in ai_analysis_runs:
         ai_run.is_stale = current_analysis_is_stale(ai_run, submission, current_policy)
+    can_comment = _can_collaborate_on_submission(request, submission)
+    version_comments = list(
+        ReviewComment.objects.filter(
+            workspace_id=request.workspace.pk,
+            submission=submission,
+            content_version=version,
+            finding__isnull=True,
+        ).select_related("author").order_by("created_at", "id")
+    )
+    for comment in version_comments:
+        comment.author_role_label = _role_label(comment.author_role)
     submit_form = None
     fresh_review = None
     if creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk:
@@ -193,6 +217,9 @@ def version_detail(request, submission_id, version_number):
             "ai_unavailable_reason": ai_unavailable_reason(),
             "can_request_ai_analysis": creator_view and submission.creator_id == request.user.pk,
             "ai_analysis_consent_form": AIAnalysisConsentForm(demo_mode=ai_analysis_mode() == "demo"),
+            "can_comment": can_comment,
+            "version_comments": version_comments,
+            "version_comment_form": ReviewCommentForm(prefix="version-comment"),
         }),
     )
 
@@ -330,6 +357,39 @@ def review_detail(request, submission_id, version_number, review_id):
             "rule", "rule__source_version", "rule__source_version__source", "source_version__source"
         ).all()
     )
+    can_comment = _can_collaborate_on_submission(request, submission)
+    finding_ids = [finding.pk for finding in findings]
+    comments_by_finding = {}
+    for comment in ReviewComment.objects.filter(
+        workspace_id=request.workspace.pk,
+        submission=submission,
+        content_version=version,
+        finding_id__in=finding_ids,
+    ).select_related("author").order_by("created_at", "id"):
+        comment.author_role_label = _role_label(comment.author_role)
+        comments_by_finding.setdefault(comment.finding_id, []).append(comment)
+    events_by_finding = {}
+    for event in FindingResolutionEvent.objects.filter(
+        workspace_id=request.workspace.pk,
+        content_version=version,
+        finding_id__in=finding_ids,
+    ).select_related("actor").order_by("created_at", "id"):
+        event.actor_role_label = _role_label(event.actor_role)
+        events_by_finding.setdefault(event.finding_id, []).append(event)
+    for finding in findings:
+        finding.collaboration_comments = comments_by_finding.get(finding.pk, [])
+        finding.resolution_history = events_by_finding.get(finding.pk, [])
+        choices = resolution_choices(
+            membership=request.workspace_membership, finding=finding, submission=submission
+        ) if can_comment else []
+        finding.resolution_choices = choices
+        if choices:
+            finding.resolution_form = FindingResolutionForm(
+                current_status=finding.resolution_status,
+                choices=choices,
+                prefix=f"finding-{finding.pk}-resolution",
+            )
+        finding.comment_form = ReviewCommentForm(prefix=f"finding-{finding.pk}-comment") if can_comment else None
     findings_by_severity = [
         (label, [finding for finding in findings if finding.rule.severity == value])
         for value, label in BrandRule.Severity.choices
@@ -377,6 +437,7 @@ def review_detail(request, submission_id, version_number, review_id):
                 outcome__in=[ReviewCheck.Outcome.NOT_APPLICABLE, ReviewCheck.Outcome.NEEDS_HUMAN_REVIEW]
             ).exists(),
             "human_review_checks": review.checks.filter(outcome=ReviewCheck.Outcome.NEEDS_HUMAN_REVIEW).count(),
+            "can_comment": can_comment,
         }),
     )
 
@@ -409,5 +470,115 @@ def review_start(request, submission_id, version_number):
         version_number=version.version_number,
         review_id=review.pk,
     )
+
+
+@require_POST
+@workspace_member_required
+def post_version_comment(request, submission_id, version_number):
+    submission = _submission(request, submission_id)
+    form = ReviewCommentForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Check the comment and try again.")
+        return redirect("app:content_reviews:version_detail", submission_id=submission.pk, version_number=version_number)
+    try:
+        comment, created = add_review_comment(
+            workspace=request.workspace,
+            actor=request.user,
+            submission_id=submission.pk,
+            version_number=version_number,
+            body=form.cleaned_data["body"],
+            idempotency_key=form.cleaned_data["idempotency_key"],
+        )
+    except ContentSubmission.DoesNotExist as exc:
+        raise Http404("This submission is not available.") from exc
+    except ContentVersion.DoesNotExist as exc:
+        raise Http404("This content version is not available.") from exc
+    if created:
+        messages.success(request, "Comment added to the version discussion.")
+    else:
+        messages.info(request, "This comment was already saved.")
+    return redirect("app:content_reviews:version_detail", submission_id=submission.pk, version_number=version_number)
+
+
+@require_POST
+@workspace_member_required
+def post_finding_comment(request, submission_id, version_number, finding_id):
+    submission = _submission(request, submission_id)
+    form = ReviewCommentForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Check the comment and try again.")
+        review_id = _finding_review_id(request, submission, version_number, finding_id)
+        return redirect("app:content_reviews:review_detail", submission_id=submission.pk, version_number=version_number, review_id=review_id)
+    try:
+        comment, created = add_review_comment(
+            workspace=request.workspace,
+            actor=request.user,
+            submission_id=submission.pk,
+            version_number=version_number,
+            finding_id=finding_id,
+            body=form.cleaned_data["body"],
+            idempotency_key=form.cleaned_data["idempotency_key"],
+        )
+    except (ContentVersion.DoesNotExist, ReviewFinding.DoesNotExist) as exc:
+        raise Http404("This finding is not available for the selected version.") from exc
+    except ContentSubmission.DoesNotExist as exc:
+        raise Http404("This submission is not available.") from exc
+    if created:
+        messages.success(request, "Comment added to the finding discussion.")
+    else:
+        messages.info(request, "This comment was already saved.")
+    review_id = comment.finding.review_run_id if comment.finding_id else _finding_review_id(request, submission, version_number, finding_id)
+    return redirect("app:content_reviews:review_detail", submission_id=submission.pk, version_number=version_number, review_id=review_id)
+
+
+@require_POST
+@workspace_member_required
+def update_finding_resolution(request, submission_id, version_number, finding_id):
+    submission = _submission(request, submission_id)
+    form = FindingResolutionForm(
+        request.POST,
+        current_status=ReviewFinding.ResolutionStatus.OPEN,
+        choices=ReviewFinding.ResolutionStatus.choices,
+    )
+    if not form.is_valid():
+        messages.error(request, "Check the finding status and try again.")
+        review_id = _finding_review_id(request, submission, version_number, finding_id)
+        return redirect("app:content_reviews:review_detail", submission_id=submission.pk, version_number=version_number, review_id=review_id)
+    try:
+        event, changed = change_finding_resolution(
+            workspace=request.workspace,
+            actor=request.user,
+            submission_id=submission.pk,
+            version_number=version_number,
+            finding_id=finding_id,
+            expected_status=form.cleaned_data["expected_status"],
+            new_status=form.cleaned_data["new_status"],
+            note=form.cleaned_data["note"],
+            idempotency_key=form.cleaned_data["idempotency_key"],
+        )
+    except (ContentSubmission.DoesNotExist, ContentVersion.DoesNotExist, ReviewFinding.DoesNotExist) as exc:
+        raise Http404("This finding is not available for the selected version.") from exc
+    except ValidationError as exc:
+        messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+        review_id = _finding_review_id(request, submission, version_number, finding_id)
+        return redirect("app:content_reviews:review_detail", submission_id=submission.pk, version_number=version_number, review_id=review_id)
+    if changed:
+        messages.success(request, f"Finding status recorded as {event.get_new_status_display()}. The original review finding remains unchanged.")
+    else:
+        messages.info(request, "The finding already has that status; no duplicate history entry was created.")
+    review_id = event.finding.review_run_id if event else _finding_review_id(request, submission, version_number, finding_id)
+    return redirect("app:content_reviews:review_detail", submission_id=submission.pk, version_number=version_number, review_id=review_id)
+
+
+def _finding_review_id(request, submission, version_number, finding_id):
+    finding = get_object_or_404(
+        ReviewFinding.objects.filter(
+            review_run__workspace_id=request.workspace.pk,
+            review_run__content_version__submission=submission,
+            review_run__content_version__version_number=version_number,
+        ),
+        pk=finding_id,
+    )
+    return finding.review_run_id
 
 

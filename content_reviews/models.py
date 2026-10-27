@@ -299,6 +299,9 @@ class ReviewFinding(models.Model):
 
     class ResolutionStatus(models.TextChoices):
         OPEN = "OPEN", "Open"
+        ACKNOWLEDGED = "ACKNOWLEDGED", "Acknowledged"
+        RESOLVED = "RESOLVED", "Resolved"
+        WONT_FIX = "WONT_FIX", "Won't fix"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     review_run = models.ForeignKey(ReviewRun, on_delete=models.PROTECT, related_name="findings")
@@ -373,3 +376,138 @@ class ReviewFinding(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError("Review findings are retained and cannot be deleted.")
+
+
+class ReviewComment(models.Model):
+    """Immutable workspace discussion attached to one saved content version.
+
+    A null finding is version-level discussion; a finding reference scopes the
+    comment to that exact finding on that exact reviewed version.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.PROTECT, related_name="review_comments"
+    )
+    submission = models.ForeignKey(
+        ContentSubmission, on_delete=models.PROTECT, related_name="review_comments"
+    )
+    content_version = models.ForeignKey(
+        ContentVersion, on_delete=models.PROTECT, related_name="review_comments"
+    )
+    finding = models.ForeignKey(
+        ReviewFinding, null=True, blank=True, on_delete=models.PROTECT, related_name="comments"
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="brandguard_review_comments"
+    )
+    author_role = models.CharField(max_length=20)
+    body = models.TextField(max_length=3000)
+    idempotency_key = models.UUIDField(default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"], name="review_comment_ws_token_uniq"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workspace", "submission", "content_version", "created_at"], name="rcomment_version_idx"),
+            models.Index(fields=["finding", "created_at"], name="rcomment_finding_idx"),
+        ]
+
+    def clean(self):
+        errors = {}
+        if self.submission_id and self.workspace_id != self.submission.workspace_id:
+            errors["workspace"] = "The comment and submission must belong to the same workspace."
+        if self.content_version_id and self.submission_id and self.content_version.submission_id != self.submission_id:
+            errors["content_version"] = "The comment must reference a version of this submission."
+        if self.finding_id and self.content_version_id:
+            if self.finding.review_run.content_version_id != self.content_version_id:
+                errors["finding"] = "The finding must belong to the comment’s exact content version."
+            elif self.finding.review_run.workspace_id != self.workspace_id:
+                errors["finding"] = "The finding must belong to the comment’s workspace."
+        if not self.body or not self.body.strip():
+            errors["body"] = "Enter a comment before posting."
+        if self.author_role not in {choice for choice, _ in self._role_choices()}:
+            errors["author_role"] = "Choose a valid workspace role."
+        if errors:
+            raise ValidationError(errors)
+
+    @staticmethod
+    def _role_choices():
+        from workspaces.models import WorkspaceMembership
+
+        return WorkspaceMembership.Role.choices
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError("Review comments are immutable; add a new comment to continue the discussion.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Review comments are retained and cannot be deleted.")
+
+
+class FindingResolutionEvent(models.Model):
+    """Append-only record of an operational status change for one finding."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.PROTECT, related_name="finding_resolution_events"
+    )
+    finding = models.ForeignKey(
+        ReviewFinding, on_delete=models.PROTECT, related_name="resolution_events"
+    )
+    content_version = models.ForeignKey(
+        ContentVersion, on_delete=models.PROTECT, related_name="finding_resolution_events"
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="finding_resolution_events"
+    )
+    actor_role = models.CharField(max_length=20)
+    previous_status = models.CharField(max_length=12, choices=ReviewFinding.ResolutionStatus.choices)
+    new_status = models.CharField(max_length=12, choices=ReviewFinding.ResolutionStatus.choices)
+    note = models.CharField(max_length=1000, blank=True)
+    idempotency_key = models.UUIDField(default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"], name="resolution_event_ws_token_uniq"
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(previous_status=models.F("new_status")),
+                name="resolution_event_status_change_ck",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["finding", "created_at"], name="resolution_finding_time_idx"),
+            models.Index(fields=["workspace", "content_version", "created_at"], name="resolution_version_idx"),
+        ]
+
+    def clean(self):
+        if self.finding_id and self.content_version_id:
+            if self.finding.review_run.content_version_id != self.content_version_id:
+                raise ValidationError({"content_version": "The resolution event must stay on the finding’s original version."})
+        if self.finding_id and self.workspace_id:
+            if self.finding.review_run.workspace_id != self.workspace_id:
+                raise ValidationError({"workspace": "The resolution event must belong to the finding’s workspace."})
+        if self.previous_status == self.new_status:
+            raise ValidationError({"new_status": "Choose a different resolution state."})
+        if self.new_status == ReviewFinding.ResolutionStatus.WONT_FIX and len(self.note.strip()) < 10:
+            raise ValidationError({"note": "Add a reason of at least 10 characters when marking a finding ‘Won’t fix’."})
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError("Finding resolution history is immutable; record a new transition instead.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Finding resolution history is retained and cannot be deleted.")
