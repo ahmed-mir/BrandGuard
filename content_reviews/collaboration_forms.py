@@ -46,4 +46,4 @@ class FindingResolutionForm(forms.Form):
         self.fields["new_status"].choices = choices
 
     def clean_note(self):
-        return self.cleaned_data["note"].strip()\n
+        return self.cleaned_data["note"].strip()

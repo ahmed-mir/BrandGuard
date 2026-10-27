@@ -424,4 +424,4 @@ class ReviewCollaborationTests(ReviewFixtureMixin, TestCase):
                 "note": "", "idempotency_key": str(uuid.uuid4()),
             },
         )
-        self.assertEqual(response.status_code, 404)\n
+        self.assertEqual(response.status_code, 404)
