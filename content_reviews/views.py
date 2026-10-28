@@ -20,6 +20,7 @@ from .forms import ContentRevisionForm, ContentSubmissionForm, StartReviewForm, 
 from .models import ContentSubmission, ContentVersion, FindingResolutionEvent, ReviewCheck, ReviewComment, ReviewFinding, ReviewRun
 from .readiness import build_review_readiness
 from .services import create_revision, create_submission, execute_review
+from .timeline import build_submission_timeline
 
 
 CREATOR = WorkspaceMembership.Role.CREATOR
@@ -154,6 +155,10 @@ def version_detail(request, submission_id, version_number):
         version=version,
         review_runs=review_runs,
     )
+    submission_timeline = build_submission_timeline(
+        workspace=request.workspace,
+        submission=submission,
+    )
     current_approval = current_valid_approval(submission)
     current_policy = policy_snapshot(request.workspace)
     version_rows = []
@@ -222,6 +227,7 @@ def version_detail(request, submission_id, version_number):
             "approval_history": approval_history,
             "current_approval": current_approval,
             "review_readiness": readiness,
+            "submission_timeline": submission_timeline,
             "submit_form": submit_form,
             "fresh_review": fresh_review,
             "can_revise": creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk,

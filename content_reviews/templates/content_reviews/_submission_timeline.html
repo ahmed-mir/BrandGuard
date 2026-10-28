@@ -1,0 +1,38 @@
+<section class="submission-timeline" aria-labelledby="submission-timeline-title">
+  <div class="review-panel-heading">
+    <div>
+      <p class="eyebrow"><span class="eyebrow__line"></span>SUBMISSION HISTORY</p>
+      <h3 id="submission-timeline-title">Activity</h3>
+      <p>Review, collaboration and approval events recorded for this submission.</p>
+    </div>
+    <span class="submission-timeline__ordering">{{ submission_timeline.ordering_label }}</span>
+  </div>
+
+  {% if submission_timeline.stale_approval %}
+    <aside class="submission-timeline__stale" role="status">
+      <strong>{{ submission_timeline.stale_approval.title }}</strong>
+      <p>{{ submission_timeline.stale_approval.reason }}</p>
+      <a class="text-link" href="{{ submission_timeline.stale_approval.url }}">View recorded approval <span aria-hidden="true">→</span></a>
+    </aside>
+  {% endif %}
+
+  {% if submission_timeline.events %}
+    <ol class="submission-timeline__events">
+      {% for event in submission_timeline.events %}
+        <li class="submission-timeline__event submission-timeline__event--{{ event.event_type }}">
+          <span class="submission-timeline__marker" aria-hidden="true"></span>
+          <div class="submission-timeline__body">
+            <div class="submission-timeline__line">
+              <strong>{% if event.url %}<a href="{{ event.url }}">{{ event.title }}</a>{% else %}{{ event.title }}{% endif %}</strong>
+              {% if event.version_number %}<span class="submission-timeline__version">Version {{ event.version_number }}</span>{% endif %}
+            </div>
+            <p>{{ event.description }}</p>
+            <small>{% if event.actor %}{{ event.actor.get_full_name|default:event.actor.username }}{% if event.role %} · {{ event.role }}{% endif %} · {% endif %}<time datetime="{{ event.timestamp|date:'c' }}">{{ event.timestamp|date:"M j, Y · H:i T" }}</time></small>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <div class="submission-timeline__empty"><strong>No review activity yet.</strong><p>Saved content versions and review events will appear here.</p></div>
+  {% endif %}
+</section>

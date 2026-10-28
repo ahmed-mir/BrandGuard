@@ -195,6 +195,8 @@ The requested path `docs/BrandGuard_Round2_PRD.pdf` is absent. The available sou
 
 Creators can append a new content version, compare saved versions, rerun deterministic checks, and submit only the latest version after a fresh complete review. Reviewers/admins can inspect the exact content, findings and evidence, then request changes with a written comment or approve. A high-severity finding requires a meaningful override reason regardless of its operational collaboration status; its original ID is recorded on the decision. Historical approvals remain intact. `approvals.services.current_valid_approval(submission)` checks exact content identity and active policy snapshot; Phase 4A export endpoints re-run this guard on each request and verify report evidence links.
 
+Submission **Activity** on a content version page is a read-only timeline derived from the existing submission, version, deterministic review, collaboration, approval and completed Demo AI records. It does not create a separate audit-log source of truth, and simulated AI events are explicitly labeled.
+
 There is no automatic application of suggested corrections, notification integration, tamper-proof auditing or general fact verification. Optional AI analysis is advisory only and requires explicit consent; see `docs/AI_INTEGRATION.md`. Export is limited to the current approved version as UTF-8 TXT and an evidence-backed PDF report. See `docs/APPROVAL_WORKFLOW.md` and `docs/EXPORTS.md` for decision and export guards.
 
 ### Collaborative review discussion and finding resolution

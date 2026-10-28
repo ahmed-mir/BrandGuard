@@ -652,6 +652,31 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 .approval-inbox-search__controls input { flex: 1 1 250px; min-width: 0; }
 .approval-inbox-search__controls .text-link { font-size: .66rem; }
 .approval-inbox-count { margin: .4rem 0 .65rem; color: var(--muted); font-size: .66rem; }
+.submission-timeline { margin: 1.6rem 0 1rem; padding-top: 1.15rem; border-top: 1px solid var(--border-dark); }
+.submission-timeline .review-panel-heading { align-items: end; }
+.submission-timeline .review-panel-heading h3 { margin: .15rem 0 .25rem; }
+.submission-timeline .review-panel-heading p:last-child { margin: .2rem 0 0; color: var(--muted); font-size: .68rem; line-height: 1.5; }
+.submission-timeline__ordering { color: var(--muted); font: 500 .56rem var(--mono); }
+.submission-timeline__events { position: relative; display: grid; gap: 0; margin: .9rem 0 0 .35rem; padding: 0 0 0 1.25rem; border-left: 1px solid var(--border-dark); list-style: none; }
+.submission-timeline__event { position: relative; min-width: 0; padding: .1rem 0 .95rem; }
+.submission-timeline__event:last-child { padding-bottom: .1rem; }
+.submission-timeline__marker { position: absolute; top: .3rem; left: -1.55rem; width: .56rem; height: .56rem; border: 1px solid var(--ink-soft); border-radius: 50%; background: var(--paper); }
+.submission-timeline__event--approval-decision .submission-timeline__marker { border-radius: 1px; transform: rotate(45deg); }
+.submission-timeline__event--demo-ai .submission-timeline__marker { border-style: dashed; }
+.submission-timeline__body { min-width: 0; }
+.submission-timeline__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .65rem; }
+.submission-timeline__line strong { color: var(--ink); font-size: .72rem; font-weight: 650; overflow-wrap: anywhere; }
+.submission-timeline__line a { color: inherit; text-decoration: none; }
+.submission-timeline__line a:hover { color: var(--teal); text-decoration: underline; text-underline-offset: .16em; }
+.submission-timeline__version { padding: .16rem .35rem; border: 1px solid var(--border); color: var(--ink-soft); font: 500 .52rem var(--mono); white-space: nowrap; }
+.submission-timeline__body > p { margin: .18rem 0; color: var(--ink-soft); font-size: .67rem; line-height: 1.5; overflow-wrap: anywhere; }
+.submission-timeline__body > small { color: var(--muted); font-size: .59rem; line-height: 1.5; overflow-wrap: anywhere; }
+.submission-timeline__stale { margin: .85rem 0; padding: .65rem .75rem; border-left: 3px solid var(--red); background: var(--red-pale); color: var(--ink-soft); font-size: .68rem; line-height: 1.5; }
+.submission-timeline__stale strong { color: var(--ink); }
+.submission-timeline__stale p { margin: .2rem 0 .3rem; overflow-wrap: anywhere; }
+.submission-timeline__empty { padding: .65rem 0; color: var(--ink-soft); font-size: .7rem; }
+.submission-timeline__empty strong { color: var(--ink); }
+.submission-timeline__empty p { margin: .2rem 0 0; color: var(--muted); }
 .approval-table-wrap { width: 100%; border-block: 1px solid var(--border-dark); }
 .approval-table { width: 100%; border-collapse: collapse; text-align: left; }
 .approval-table th { padding: .65rem .5rem; border-bottom: 1px solid var(--border); color: var(--muted); font: 500 .58rem var(--mono); letter-spacing: .055em; text-transform: uppercase; }
@@ -753,6 +778,11 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
   .approval-table th, .approval-table td { padding-inline: .35rem; }
 }
 @media (max-width: 620px) {
+  .submission-timeline .review-panel-heading { align-items: start; }
+  .submission-timeline__ordering { white-space: normal; text-align: right; }
+  .submission-timeline__events { margin-left: .2rem; padding-left: 1rem; }
+  .submission-timeline__marker { left: -1.31rem; }
+  .submission-timeline__line { align-items: flex-start; flex-direction: column; gap: .28rem; }
   .approval-inbox-filters { gap: .2rem; }
   .approval-inbox-filter { padding: .38rem .45rem; font-size: .62rem; }
   .approval-inbox-search__controls input, .approval-inbox-search__controls .button { flex-basis: 100%; width: 100%; }
