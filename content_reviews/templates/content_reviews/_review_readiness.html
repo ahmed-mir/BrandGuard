@@ -1,0 +1,44 @@
+<section class="review-readiness" aria-labelledby="review-readiness-title">
+  <div class="review-readiness__heading">
+    <div>
+      <p class="eyebrow"><span class="eyebrow__line"></span>WORKFLOW GUIDE</p>
+      <h3 id="review-readiness-title">Review readiness</h3>
+    </div>
+    <span class="review-readiness__stage" role="status">{{ review_readiness.stage_label }}</span>
+  </div>
+  <p class="review-readiness__explanation">{{ review_readiness.stage_explanation }}</p>
+
+  <dl class="review-readiness__grid">
+    <div>
+      <dt>Policy</dt>
+      <dd>{{ review_readiness.policy.label }}</dd>
+      {% if review_readiness.policy.ready %}<small>Revision {{ review_readiness.policy.revision }} · {{ review_readiness.policy.source_count }} approved source{{ review_readiness.policy.source_count|pluralize }} · {{ review_readiness.policy.rule_count }} rule{{ review_readiness.policy.rule_count|pluralize }} · {{ review_readiness.policy.fact_count }} fact{{ review_readiness.policy.fact_count|pluralize }}</small>{% endif %}
+    </div>
+    <div>
+      <dt>Deterministic review</dt>
+      <dd>{{ review_readiness.review.label }}</dd>
+      {% if review_readiness.review.run %}<small>Version {{ review_readiness.review.run.content_version.version_number }} · policy revision {{ review_readiness.review.run.policy_revision }}</small>{% endif %}
+    </div>
+    <div>
+      <dt>Findings</dt>
+      <dd>{{ review_readiness.review.count }} total · {{ review_readiness.review.high_count }} high severity</dd>
+      <small>{% for row in review_readiness.review.resolution_rows %}{% if not forloop.first %} · {% endif %}{{ row.count }} {{ row.label|lower }}{% endfor %}</small>
+    </div>
+    <div>
+      <dt>Approval</dt>
+      <dd>{{ review_readiness.approval.label }}</dd>
+      {% if review_readiness.approval.override_required %}<small>Reviewer override with a reason required for {{ review_readiness.approval.high_count }} high-severity finding{{ review_readiness.approval.high_count|pluralize }}.</small>{% elif review_readiness.approval.request %}<small>For version {{ review_readiness.approval.request.content_version.version_number }}</small>{% endif %}
+    </div>
+    <div>
+      <dt>Export</dt>
+      <dd>{{ review_readiness.export.label }}</dd>
+      {% if not review_readiness.export.available %}<small>{{ review_readiness.export.reason }}</small>{% endif %}
+    </div>
+  </dl>
+
+  {% if review_readiness.review.count %}<p class="review-readiness__note">{{ review_readiness.resolution_note }} Original findings and evidence remain part of the saved review.</p>{% endif %}
+  <div class="review-readiness__next">
+    <div><strong>Next action</strong><p>{{ review_readiness.next_action.description }}</p></div>
+    {% if review_readiness.next_action.url and review_readiness.next_action.label %}<a class="button button--secondary" href="{{ review_readiness.next_action.url }}">{{ review_readiness.next_action.label }} <span aria-hidden="true">→</span></a>{% endif %}
+  </div>
+</section>

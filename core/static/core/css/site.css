@@ -1032,10 +1032,32 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 .approval-status-banner--stale { border-left-width: 4px; }
 .approval-status-banner--stale > strong { display: inline-block; font-size: .84rem; }
 .review-evidence summary:focus-visible { outline: 3px solid #3b978b; outline-offset: 2px; }
+.review-readiness { margin: 1.35rem 0 1.6rem; padding: 1rem 1.05rem .85rem; border: 1px solid var(--border-dark); background: #f7f8f5; }
+.review-readiness__heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+.review-readiness__heading .eyebrow { margin-bottom: .28rem; }
+.review-readiness__heading h3 { margin: 0; color: var(--ink); font-size: 1.05rem; letter-spacing: -.025em; }
+.review-readiness__stage { padding: .28rem .5rem; border: 1px solid var(--border-dark); color: var(--ink); font-size: .67rem; font-weight: 650; line-height: 1.35; }
+.review-readiness__explanation { margin: .5rem 0 .85rem; color: var(--ink-soft); font-size: .75rem; line-height: 1.55; }
+.review-readiness__grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); border-block: 1px solid var(--border); }
+.review-readiness__grid > div { min-width: 0; padding: .62rem .65rem .65rem; border-left: 1px solid var(--border); }
+.review-readiness__grid > div:first-child { padding-left: 0; border-left: 0; }
+.review-readiness__grid dt { color: var(--muted); font: 500 .56rem var(--mono); letter-spacing: .045em; text-transform: uppercase; }
+.review-readiness__grid dd { margin: .22rem 0; color: var(--ink); font-size: .7rem; font-weight: 620; line-height: 1.4; overflow-wrap: anywhere; }
+.review-readiness__grid small { display: block; color: var(--muted); font-size: .59rem; line-height: 1.5; overflow-wrap: anywhere; }
+.review-readiness__note { margin: .6rem 0 0; color: var(--muted); font-size: .62rem; line-height: 1.5; }
+.review-readiness__next { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .75rem; padding-top: .7rem; border-top: 1px solid var(--border); }
+.review-readiness__next strong { color: var(--ink); font-size: .7rem; }
+.review-readiness__next p { max-width: 70ch; margin: .14rem 0 0; color: var(--ink-soft); font-size: .68rem; line-height: 1.5; }
+.review-readiness__next .button { flex: 0 0 auto; }
+.review-readiness a:focus-visible { outline: 3px solid #3b978b; outline-offset: 3px; }
 @media (max-width: 800px) {
   .workspace-activity__heading { align-items: flex-start; flex-direction: column; gap: .5rem; }
   .workspace-records { grid-template-columns: minmax(0,1fr); gap: 1.4rem; }
   .ai-demo-note { grid-template-columns: minmax(0,1fr); gap: .7rem; }
+  .review-readiness__grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .review-readiness__grid > div:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .review-readiness__grid > div:nth-child(n+3) { border-top: 1px solid var(--border); }
+  .review-readiness__grid > div:last-child { grid-column: 1 / -1; }
 }
 
 /* Phase 6C: concise product explanation and source-grounded public example. */
@@ -1081,4 +1103,12 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
   .workspace-record-list li > a { grid-template-columns: minmax(0,1fr); gap: .4rem; }
   .workspace-record-list time { grid-column: 1; grid-row: auto; }
   .workspace-record-list li > a .review-state { justify-self: start; }
+  .review-readiness { padding: .85rem .75rem .75rem; }
+  .review-readiness__heading { align-items: flex-start; flex-direction: column; gap: .45rem; }
+  .review-readiness__grid { grid-template-columns: minmax(0,1fr); }
+  .review-readiness__grid > div,.review-readiness__grid > div:first-child,.review-readiness__grid > div:nth-child(odd) { padding: .55rem .05rem; border-left: 0; border-top: 1px solid var(--border); }
+  .review-readiness__grid > div:first-child { border-top: 0; }
+  .review-readiness__grid > div:last-child { grid-column: auto; }
+  .review-readiness__next { align-items: stretch; flex-direction: column; }
+  .review-readiness__next .button { width: 100%; justify-content: center; }
 }

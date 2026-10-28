@@ -18,6 +18,7 @@ from .collaboration import add_review_comment, change_finding_resolution, resolu
 from .collaboration_forms import FindingResolutionForm, ReviewCommentForm
 from .forms import ContentRevisionForm, ContentSubmissionForm, StartReviewForm, SubmitForApprovalForm
 from .models import ContentSubmission, ContentVersion, FindingResolutionEvent, ReviewCheck, ReviewComment, ReviewFinding, ReviewRun
+from .readiness import build_review_readiness
 from .services import create_revision, create_submission, execute_review
 
 
@@ -146,6 +147,13 @@ def version_detail(request, submission_id, version_number):
     from ai_analysis.forms import AIAnalysisConsentForm
     from ai_analysis.models import AIAnalysisRun
     from ai_analysis.services import ai_analysis_available, ai_analysis_mode, ai_unavailable_reason, current_analysis_is_stale
+    readiness = build_review_readiness(
+        workspace=request.workspace,
+        membership=request.workspace_membership,
+        submission=submission,
+        version=version,
+        review_runs=review_runs,
+    )
     current_approval = current_valid_approval(submission)
     current_policy = policy_snapshot(request.workspace)
     version_rows = []
@@ -191,13 +199,15 @@ def version_detail(request, submission_id, version_number):
     for comment in version_comments:
         comment.author_role_label = _role_label(comment.author_role)
     submit_form = None
-    fresh_review = None
+    fresh_review = readiness["review"]["run"] if readiness["review"]["fresh"] else None
     if creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk:
-        for candidate in review_runs:
-            if candidate.status == ReviewRun.Status.COMPLETE and candidate.policy_snapshot == current_policy and candidate.checks.exists():
-                fresh_review = candidate
-                break
-        if fresh_review:
+        prior_approval_is_for_another_version = (
+            readiness["approval"]["key"] == "STALE"
+            and readiness["approval"]["request"] is not None
+            and readiness["approval"]["request"].content_version_id != version.pk
+        )
+        can_request_current_approval = readiness["approval"]["key"] == "NOT_REQUESTED" or prior_approval_is_for_another_version
+        if fresh_review and can_request_current_approval:
             submit_form = SubmitForApprovalForm(initial={"review_run_id": fresh_review.pk}, content_version=version)
     return render(
         request,
@@ -211,6 +221,7 @@ def version_detail(request, submission_id, version_number):
             "version_rows": version_rows,
             "approval_history": approval_history,
             "current_approval": current_approval,
+            "review_readiness": readiness,
             "submit_form": submit_form,
             "fresh_review": fresh_review,
             "can_revise": creator_view and submission.creator_id == request.user.pk and submission.current_version_id == version.pk,

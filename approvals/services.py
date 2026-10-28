@@ -36,13 +36,19 @@ def _has_role(workspace, actor, roles):
     ).exists()
 
 
-def _review_is_complete(review):
+def review_is_complete(review):
+    """Return whether a run satisfies the approval workflow's completion rule."""
     checks = review.checks.all()
     return (
         review.status == ReviewRun.Status.COMPLETE
         and checks.exists()
         and not checks.filter(outcome__in=INCOMPLETE_OUTCOMES).exists()
     )
+
+
+# Retain the internal name for existing service call sites while exposing the
+# exact same rule to read-only workflow guidance.
+_review_is_complete = review_is_complete
 
 
 @_translate_sqlite_contention
