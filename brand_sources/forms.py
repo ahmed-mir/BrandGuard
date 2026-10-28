@@ -1,3 +1,5 @@
+import uuid
+
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -6,6 +8,7 @@ from .models import ApprovedFact, BrandRule, BrandSource, SourceVersion, validat
 
 
 class BrandDocumentImportForm(forms.Form):
+    idempotency_key = forms.UUIDField(widget=forms.HiddenInput)
     title = forms.CharField(max_length=160, label="Source title")
     source_type = forms.ChoiceField(choices=BrandSource.SourceType.choices, label="Source type")
     description = forms.CharField(max_length=500, required=False, widget=forms.Textarea(attrs={"rows": 3}))
@@ -15,6 +18,11 @@ class BrandDocumentImportForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={"accept": ".txt,.docx,.pdf"}),
     )
 
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.setdefault("initial", {})
+        initial.setdefault("idempotency_key", uuid.uuid4())
+        super().__init__(*args, **kwargs)
+
     def clean_document(self):
         document = self.cleaned_data["document"]
         if document.size > settings.BRAND_DOCUMENT_MAX_UPLOAD_BYTES:
@@ -23,6 +31,7 @@ class BrandDocumentImportForm(forms.Form):
 
 
 class ImportedTextConfirmationForm(forms.Form):
+    expected_content_hash = forms.RegexField(regex=r"\A[a-fA-F0-9]{64}\Z", widget=forms.HiddenInput)
     confirm_text = forms.BooleanField(
         required=True,
         label="I reviewed the extracted text and confirm it is accurate enough to serve as an authoritative brand source.",
@@ -31,6 +40,7 @@ class ImportedTextConfirmationForm(forms.Form):
 
 
 class BrandSourceCreateForm(forms.ModelForm):
+    idempotency_key = forms.UUIDField(widget=forms.HiddenInput)
     source_text = forms.CharField(
         required=False,
         label="Authoritative source text",
@@ -54,8 +64,16 @@ class BrandSourceCreateForm(forms.ModelForm):
             raise forms.ValidationError("Add the full authoritative source text before saving.")
         return value
 
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.setdefault("initial", {})
+        initial.setdefault("idempotency_key", uuid.uuid4())
+        super().__init__(*args, **kwargs)
+
 
 class SourceVersionForm(forms.ModelForm):
+    base_version_number = forms.IntegerField(widget=forms.HiddenInput)
+    base_content_hash = forms.RegexField(regex=r"\A[a-fA-F0-9]{64}\Z", widget=forms.HiddenInput)
+
     class Meta:
         model = SourceVersion
         fields = ["source_text", "effective_date"]
@@ -70,6 +88,15 @@ class SourceVersionForm(forms.ModelForm):
         if not value.strip():
             raise forms.ValidationError("Add the full authoritative source text before saving.")
         return value
+
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.get("initial") or {}
+        instance = kwargs.get("instance")
+        if instance is not None and instance.pk:
+            initial.setdefault("base_version_number", instance.version_number)
+            initial.setdefault("base_content_hash", instance.content_hash)
+        kwargs["initial"] = initial
+        super().__init__(*args, **kwargs)
 
 
 class BrandRuleForm(forms.ModelForm):

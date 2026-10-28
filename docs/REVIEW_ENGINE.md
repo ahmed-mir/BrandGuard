@@ -23,6 +23,8 @@ Effective dates are interpreted as start dates. A future-effective approved sour
 
 The run uses a UUID idempotency token provided by its start form. Repeating the same request with the same token and same actor/content returns the existing run. A separate user action/token creates a distinct historical run. Processing is synchronous and bounded to 500 rules, 250 findings, and 20,000 input characters. Completed checks/findings are saved individually; if a check or persistence step fails, the valid prior results remain and the run becomes `PARTIAL` when any check completed, otherwise `FAILED`. Remaining work is recorded. A partial or failed result must not be presented as a pass.
 
+Content submission forms also carry a persisted request token scoped to the workspace and creator. Reposting the same form returns the original immutable version 1; reusing that token for different content is rejected. Successful mutations use POST/redirect/GET, so refreshing the result page does not replay the mutation. A deliberate new review form has a new token and creates a distinct historical run; a retry of the same form reuses its run.
+
 ## Implemented rule evaluation
 
 All evaluation uses the validated matcher schema already saved by Phase 2A. The engine never interprets source prose as code, accepts user-defined expressions, or contains LumaDesk-specific matching logic.

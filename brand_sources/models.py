@@ -78,6 +78,7 @@ class BrandSource(models.Model):
         blank=True,
         related_name="owned_brand_sources",
     )
+    create_idempotency_key = models.UUIDField(null=True, blank=True)
     is_demo = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -86,6 +87,11 @@ class BrandSource(models.Model):
         ordering = ["title", "id"]
         constraints = [
             models.UniqueConstraint(fields=["workspace", "slug"], name="bs_ws_slug_uniq"),
+            models.UniqueConstraint(
+                fields=["workspace", "owner", "create_idempotency_key"],
+                condition=Q(create_idempotency_key__isnull=False),
+                name="bs_create_request_uniq",
+            ),
         ]
         indexes = [models.Index(fields=["workspace", "source_type"], name="bs_ws_type_idx")]
 

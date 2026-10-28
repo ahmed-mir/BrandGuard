@@ -390,6 +390,7 @@ class RevisionAndApprovalViewTests(ReviewFixtureMixin, TestCase):
         client = Client()
         client.force_login(self.creator)
         created = client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "LumaDesk spring campaign", "channel": ContentSubmission.Channel.INSTAGRAM,
             "audience": "Operations teams", "campaign_purpose": "Product launch",
             "content_text": "Luma Desk gives teams a clearer start.",

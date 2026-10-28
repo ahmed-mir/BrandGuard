@@ -277,6 +277,7 @@ class ApprovedExportTests(ReviewFixtureMixin, TestCase):
         creator_client = Client()
         creator_client.force_login(self.creator)
         posted = creator_client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Approved launch copy", "channel": ContentSubmission.Channel.INSTAGRAM,
             "audience": "Operations teams", "campaign_purpose": "Product launch",
             "content_text": "Luma Desk makes task completion clearer.",

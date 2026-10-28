@@ -104,7 +104,7 @@ def source_list(request):
 @require_http_methods(["GET", "POST"])
 @workspace_role_required(*MANAGER_ROLES)
 def source_create(request):
-    form = BrandSourceCreateForm(request.POST or None)
+    form = BrandSourceCreateForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         try:
             with transaction.atomic():
@@ -116,6 +116,7 @@ def source_create(request):
                     description=form.cleaned_data["description"],
                     source_text=form.cleaned_data["source_text"],
                     effective_date=form.cleaned_data["effective_date"],
+                    idempotency_key=form.cleaned_data["idempotency_key"],
                 )
         except ValidationError as exc:
             for error in exc.messages:
@@ -129,7 +130,10 @@ def source_create(request):
 @require_http_methods(["GET", "POST"])
 @workspace_role_required(*MANAGER_ROLES)
 def document_import(request):
-    form = BrandDocumentImportForm(request.POST or None, request.FILES or None)
+    form = BrandDocumentImportForm(
+        request.POST if request.method == "POST" else None,
+        request.FILES if request.method == "POST" else None,
+    )
     if not settings.PRIVATE_DOCUMENT_IMPORTS_ENABLED:
         return render(request, "brand_sources/document_import.html", _context(
             request,
@@ -148,9 +152,12 @@ def document_import(request):
                 source_type=form.cleaned_data["source_type"],
                 description=form.cleaned_data["description"],
                 upload=form.cleaned_data["document"],
+                idempotency_key=form.cleaned_data["idempotency_key"],
             )
         except DocumentImportError as exc:
             form.add_error("document", str(exc))
+        except ValidationError as exc:
+            form.add_error(None, " ".join(exc.messages))
         except DocumentImportPersistenceError as exc:
             messages.error(request, str(exc))
         else:
@@ -206,14 +213,21 @@ def source_version_create(request, source_id):
     previous = source.versions.order_by("-version_number").first()
     if previous is None:
         raise PermissionDenied("Create the first source version before adding another.")
-    form = SourceVersionForm(request.POST or None, instance=SourceVersion(source=source), initial={
+    form = SourceVersionForm(request.POST if request.method == "POST" else None, instance=SourceVersion(source=source), initial={
         "source_text": previous.source_text,
         "effective_date": previous.effective_date,
+        "base_version_number": previous.version_number,
+        "base_content_hash": previous.content_hash,
     })
     if request.method == "POST" and form.is_valid():
         try:
             with transaction.atomic():
-                version, created = create_draft_version(source=source, workspace=request.workspace)
+                version, created = create_draft_version(
+                    source=source,
+                    workspace=request.workspace,
+                    expected_previous_version=form.cleaned_data["base_version_number"],
+                    expected_previous_hash=form.cleaned_data["base_content_hash"],
+                )
                 if not created:
                     messages.info(request, "This source already has an open draft version. The existing draft was kept unchanged.")
                     return redirect("app:brand_sources:version_edit", source_id=source.pk, version_number=version.version_number)
@@ -237,7 +251,7 @@ def source_version_edit(request, source_id, version_number):
     version = get_object_or_404(SourceVersion, source=source, version_number=version_number)
     if version.status != SourceVersion.Status.DRAFT:
         raise PermissionDenied("Approved source versions cannot be edited. Create a new draft version.")
-    form = SourceVersionForm(request.POST or None, instance=version)
+    form = SourceVersionForm(request.POST if request.method == "POST" else None, instance=version)
     if request.method == "POST" and form.is_valid():
         with transaction.atomic():
             version = get_object_or_404(
@@ -248,11 +262,17 @@ def source_version_edit(request, source_id, version_number):
             if version.status != SourceVersion.Status.DRAFT:
                 raise PermissionDenied("Approved source versions cannot be edited. Create a new draft version.")
             form = SourceVersionForm(request.POST, instance=version)
-            if form.is_valid():
+            if (
+                form.is_valid()
+                and form.cleaned_data["base_version_number"] == version.version_number
+                and form.cleaned_data["base_content_hash"] == version.content_hash
+            ):
                 form.save()
                 source.save(update_fields=["updated_at"])
                 messages.success(request, f"Draft version {version.version_number} saved.")
                 return redirect("app:brand_sources:version_edit", source_id=source.pk, version_number=version.version_number)
+            if form.is_valid():
+                form.add_error(None, "This draft changed after the form was opened. Reload the latest text before saving.")
     return render(request, "brand_sources/version_edit.html", _context(request, f"Edit {source.title} · v{version.version_number}", extra={
         "source": source,
         "version": version,
@@ -276,9 +296,13 @@ def source_version_confirm_import(request, source_id, version_number):
             version_number=version_number,
             workspace=request.workspace,
             actor=request.user,
+            expected_content_hash=form.cleaned_data["expected_content_hash"],
         )
     except SourceVersion.DoesNotExist:
         raise Http404
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("app:brand_sources:version_edit", source_id=source_id, version_number=version_number)
     messages.success(request, "Extracted source text confirmed. You can now add policy entries and publish this version.")
     return redirect("app:brand_sources:version_edit", source_id=confirmed.source_version.source_id, version_number=confirmed.source_version.version_number)
 

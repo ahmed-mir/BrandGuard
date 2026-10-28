@@ -31,6 +31,8 @@ Suggested wording on deterministic findings is displayed as copyable text only. 
 
 The creator revision form loads the latest saved text. On POST, the service locks the submission where supported, checks creator ownership and active membership, compares base version ID and content hash with the current pointer, validates non-empty text and the 20,000-character bound, and appends a new numbered version with a newly calculated hash. The current-version pointer moves in the same transaction. A matching idempotency retry returns the same record only when base and text hash also match. Stale submissions or conflicting writes receive a retry message; earlier text is never overwritten.
 
+Initial submission forms use a persisted workspace/creator-scoped request token: an identical retry returns the original version 1, while a changed payload under the same token is rejected. Brand-source create/import forms use the same pattern scoped to workspace and owner. Imported-text confirmation includes the hash displayed to the user; confirmation is rejected if the saved source text changed after the form was opened. Repeating confirmation for the same hash is a no-op and does not rewrite its confirmation timestamp.
+
 The comparison route reads two versions from the same workspace-scoped submission. Python's standard `difflib.SequenceMatcher` produces an escaped line comparison. User content is rendered with Django template autoescaping, not trusted markup or `innerHTML`.
 
 ## Fresh review requirements

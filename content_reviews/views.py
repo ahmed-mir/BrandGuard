@@ -82,7 +82,7 @@ def submission_list(request):
 @require_http_methods(["GET", "POST"])
 @workspace_role_required(WorkspaceMembership.Role.CREATOR)
 def submission_create(request):
-    form = ContentSubmissionForm(request.POST or None)
+    form = ContentSubmissionForm(request.POST if request.method == "POST" else None)
     demo_example = None
     if request.workspace.is_demo:
         demo_example = {
@@ -98,10 +98,13 @@ def submission_create(request):
         }
     if request.method == "POST" and form.is_valid():
         try:
+            submission_data = form.cleaned_data.copy()
+            idempotency_key = submission_data.pop("idempotency_key")
             submission, version = create_submission(
                 workspace=request.workspace,
                 creator=request.user,
-                **form.cleaned_data,
+                idempotency_key=idempotency_key,
+                **submission_data,
             )
         except ValidationError as exc:
             if hasattr(exc, "error_dict"):
@@ -286,6 +289,8 @@ def submit_submission(request, submission_id):
     from approvals.services import submit_for_approval
 
     submission = _submission(request, submission_id)
+    if submission.current_version_id is None:
+        raise Http404("This submission has no current content version.")
     form = SubmitForApprovalForm(request.POST, content_version=submission.current_version)
     if not form.is_valid():
         messages.error(request, "Refresh the current version and choose its latest completed review before submitting.")
@@ -322,7 +327,9 @@ def compare_versions(request, submission_id):
     rows = []
     old_lines = older.content_text.splitlines(keepends=True)
     new_lines = newer.content_text.splitlines(keepends=True)
-    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_opcodes():
+    # Diff inputs are bounded to 20,000 characters. Keep difflib's autojunk
+    # heuristic enabled so repetitive text cannot trigger quadratic matching.
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_lines, new_lines).get_opcodes():
         if tag == "equal":
             rows.extend({"kind": "equal", "old": old_lines[i], "new": new_lines[j]} for i, j in zip(range(i1, i2), range(j1, j2)))
         elif tag == "delete":

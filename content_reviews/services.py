@@ -49,46 +49,91 @@ class ReviewStart:
 
 
 @transaction.atomic
-def create_submission(*, workspace, creator, title, channel, audience, campaign_purpose, content_text, is_demo=False):
+def create_submission(
+    *, workspace, creator, title, channel, audience, campaign_purpose, content_text,
+    is_demo=False, idempotency_key=None,
+):
     """Persist the first immutable version of a text-only content submission."""
-    if not WorkspaceMembership.objects.select_for_update().filter(
-        workspace=workspace,
-        workspace__is_active=True,
-        user=creator,
-        user__is_active=True,
-        is_active=True,
-        role=WorkspaceMembership.Role.CREATOR,
-    ).exists():
-        raise ValidationError("Only an active creator in this workspace can submit content.")
     if not content_text or not content_text.strip():
         raise ValidationError({"content_text": "Paste the marketing text you want checked."})
     if len(content_text) > 20_000:
         raise ValidationError({"content_text": "Content must be 20,000 characters or fewer."})
     if channel not in ContentSubmission.Channel.values:
         raise ValidationError({"channel": "Choose a supported content channel."})
-    with transaction.atomic():
-        submission = ContentSubmission.objects.create(
-            workspace=workspace,
-            creator=creator,
-            title=title.strip(),
-            channel=channel,
-            audience=audience.strip(),
-            campaign_purpose=campaign_purpose.strip(),
-            is_demo=is_demo,
-        )
-        version = ContentVersion(
-            submission=submission,
-            version_number=1,
-            content_text=content_text,
-            created_by=creator,
-            is_demo=is_demo,
-        )
-        version.full_clean()
-        version.save()
-        submission.current_version = version
-        submission.full_clean()
-        submission.save(update_fields=["current_version", "updated_at"])
-    return submission, version
+    token = None
+    if idempotency_key is not None:
+        try:
+            token = uuid.UUID(str(idempotency_key))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValidationError("Refresh the form and try again.") from exc
+    try:
+        with transaction.atomic():
+            locked_workspace = Workspace.objects.select_for_update().get(pk=workspace.pk, is_active=True)
+            membership = WorkspaceMembership.objects.select_for_update().filter(
+                workspace=locked_workspace,
+                user=creator,
+                user__is_active=True,
+                is_active=True,
+                role=WorkspaceMembership.Role.CREATOR,
+            ).first()
+            if membership is None:
+                raise ValidationError("Only an active creator in this workspace can submit content.")
+
+            values = {
+                "title": title.strip(),
+                "channel": channel,
+                "audience": audience.strip(),
+                "campaign_purpose": campaign_purpose.strip(),
+                "is_demo": is_demo,
+            }
+            if token:
+                existing = ContentSubmission.objects.filter(
+                    workspace=locked_workspace, creator=creator, create_idempotency_key=token,
+                ).first()
+                if existing:
+                    version = existing.versions.filter(version_number=1).first()
+                    if (
+                        version is not None
+                        and all(getattr(existing, field) == value for field, value in values.items())
+                        and version.content_text == content_text
+                        and existing.current_version_id == version.pk
+                    ):
+                        return existing, version
+                    raise ValidationError("This submission request was already used for different content.")
+
+            submission = ContentSubmission.objects.create(
+                workspace=locked_workspace,
+                creator=creator,
+                create_idempotency_key=token,
+                **values,
+            )
+            version = ContentVersion(
+                submission=submission,
+                version_number=1,
+                content_text=content_text,
+                created_by=creator,
+                is_demo=is_demo,
+            )
+            version.full_clean()
+            version.save()
+            submission.current_version = version
+            submission.full_clean()
+            submission.save(update_fields=["current_version", "updated_at"])
+        return submission, version
+    except IntegrityError as exc:
+        if token:
+            existing = ContentSubmission.objects.filter(
+                workspace=workspace, creator=creator, create_idempotency_key=token,
+            ).first()
+            version = existing.versions.filter(version_number=1).first() if existing else None
+            if (
+                existing and version and existing.current_version_id == version.pk
+                and existing.title == title.strip() and existing.channel == channel
+                and existing.audience == audience.strip() and existing.campaign_purpose == campaign_purpose.strip()
+                and existing.is_demo == is_demo and version.content_text == content_text
+            ):
+                return existing, version
+        raise ValidationError("This content could not be saved because another submission was created at the same time. Refresh and try again.") from exc
 
 
 def create_revision(*, submission_id, workspace, actor, base_version_id, base_content_hash, content_text, idempotency_key):

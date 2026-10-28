@@ -443,7 +443,10 @@ class DeterministicEngineTests(ReviewFixtureMixin, TestCase):
 class ReviewPermissionAndFlowTests(ReviewFixtureMixin, TestCase):
     def test_end_to_end_creator_submission_review_and_evidence_inspection(self):
         self.client.force_login(self.creator)
+        create_form = self.client.get(reverse("app:content_reviews:create"))
+        create_token = create_form.context["form"]["idempotency_key"].value()
         response = self.client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": create_token,
             "title": "Spring campaign",
             "channel": ContentSubmission.Channel.EMAIL,
             "audience": "Operations teams",
@@ -521,7 +524,11 @@ class ReviewPermissionAndFlowTests(ReviewFixtureMixin, TestCase):
 
     def test_invalid_or_empty_content_is_rejected(self):
         self.client.force_login(self.creator)
+        empty_request = self.client.post(reverse("app:content_reviews:create"), {})
+        self.assertEqual(empty_request.status_code, 200)
+        self.assertContains(empty_request, "This field is required.")
         response = self.client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Empty",
             "channel": ContentSubmission.Channel.EMAIL,
             "audience": "",
@@ -532,9 +539,54 @@ class ReviewPermissionAndFlowTests(ReviewFixtureMixin, TestCase):
         self.assertFalse(ContentSubmission.objects.filter(title="Empty").exists())
         self.assertContains(response, "Paste the marketing text you want checked.")
 
+    def test_initial_submission_request_is_idempotent_and_refresh_safe(self):
+        self.client.force_login(self.creator)
+        page = self.client.get(reverse("app:content_reviews:create"))
+        token = page.context["form"]["idempotency_key"].value()
+        data = {
+            "idempotency_key": token,
+            "title": "One saved submission",
+            "channel": ContentSubmission.Channel.EMAIL,
+            "audience": "Teams",
+            "campaign_purpose": "Launch",
+            "content_text": "A synthetic campaign message.",
+        }
+        first = self.client.post(reverse("app:content_reviews:create"), data)
+        self.assertEqual(first.status_code, 302)
+        second = self.client.post(reverse("app:content_reviews:create"), data)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(ContentSubmission.objects.filter(title="One saved submission").count(), 1)
+        submission = ContentSubmission.objects.get(title="One saved submission")
+        self.assertEqual(submission.versions.count(), 1)
+        self.assertEqual(self.client.get(second.url).status_code, 200)
+        self.assertEqual(ContentSubmission.objects.filter(title="One saved submission").count(), 1)
+
+        changed = {**data, "content_text": "Different content under the same token."}
+        rejected = self.client.post(reverse("app:content_reviews:create"), changed)
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, "already used for different content")
+        self.assertEqual(ContentSubmission.objects.filter(title="One saved submission").count(), 1)
+
+    def test_approval_submission_with_missing_current_version_returns_not_found(self):
+        orphan = ContentSubmission.objects.create(
+            workspace=self.workspace, creator=self.creator, title="Incomplete legacy record",
+            channel=ContentSubmission.Channel.EMAIL,
+        )
+        self.client.force_login(self.creator)
+        response = self.client.post(reverse("app:content_reviews:submit", args=[orphan.pk]), {})
+        self.assertEqual(response.status_code, 404)
+
+    def test_compare_rejects_same_and_nonexistent_versions(self):
+        submission, _ = self.create_submission_for(text="A saved version")
+        self.client.force_login(self.creator)
+        route = reverse("app:content_reviews:compare", args=[submission.pk])
+        self.assertEqual(self.client.get(route, {"from": 1, "to": 1}).status_code, 404)
+        self.assertEqual(self.client.get(route, {"from": 1, "to": 9}).status_code, 404)
+
     def test_user_supplied_html_is_rendered_as_text(self):
         self.client.force_login(self.creator)
         self.client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "HTML-like copy",
             "channel": ContentSubmission.Channel.WEBSITE,
             "audience": "",

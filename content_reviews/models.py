@@ -27,6 +27,7 @@ class ContentSubmission(models.Model):
     channel = models.CharField(max_length=16, choices=Channel.choices)
     audience = models.CharField(max_length=200, blank=True)
     campaign_purpose = models.CharField(max_length=300, blank=True)
+    create_idempotency_key = models.UUIDField(null=True, blank=True)
     current_version = models.ForeignKey(
         "content_reviews.ContentVersion",
         on_delete=models.PROTECT,
@@ -40,6 +41,13 @@ class ContentSubmission(models.Model):
 
     class Meta:
         ordering = ["-updated_at", "-created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "creator", "create_idempotency_key"],
+                condition=Q(create_idempotency_key__isnull=False),
+                name="cs_create_request_uniq",
+            ),
+        ]
         indexes = [
             models.Index(fields=["workspace", "created_at"], name="cs_ws_created_idx"),
             models.Index(fields=["creator", "created_at"], name="cs_creator_created_idx"),

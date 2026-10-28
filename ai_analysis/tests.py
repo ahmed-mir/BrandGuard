@@ -523,6 +523,7 @@ class AIAnalysisViewAndIntegrationTests(ReviewFixtureMixin, TestCase):
         creator_client = Client()
         creator_client.force_login(self.creator)
         submitted = creator_client.post(reverse("app:content_reviews:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Synthetic AI advisory test",
             "channel": ContentSubmission.Channel.INSTAGRAM,
             "audience": "Synthetic audience",

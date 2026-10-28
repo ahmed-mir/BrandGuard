@@ -1,6 +1,7 @@
 import hashlib
 import io
 import secrets
+import uuid
 import zipfile
 from decimal import Decimal
 
@@ -90,6 +91,7 @@ class BrandSourceWorkflowTests(TestCase):
     def test_source_creation_stores_workspace_owner_and_first_draft(self):
         self.client.force_login(self.manager)
         response = self.client.post(reverse("app:brand_sources:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Channel disclaimer",
             "source_type": BrandSource.SourceType.POLICY,
             "description": "Channel guidance.",
@@ -104,6 +106,45 @@ class BrandSourceWorkflowTests(TestCase):
         self.assertEqual(version.status, SourceVersion.Status.DRAFT)
         self.assertEqual(version.content_hash, hashlib.sha256(version.source_text.encode()).hexdigest())
 
+    def test_replayed_source_create_request_returns_the_original_source(self):
+        self.client.force_login(self.manager)
+        page = self.client.get(reverse("app:brand_sources:create"))
+        token = page.context["form"]["idempotency_key"].value()
+        data = {
+            "idempotency_key": token,
+            "title": "One source request",
+            "source_type": BrandSource.SourceType.POLICY,
+            "description": "A synthetic source.",
+            "source_text": "Approved wording for the demo.",
+            "effective_date": "",
+        }
+        first = self.client.post(reverse("app:brand_sources:create"), data)
+        self.assertEqual(first.status_code, 302)
+        second = self.client.post(reverse("app:brand_sources:create"), data)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(BrandSource.objects.filter(title="One source request").count(), 1)
+        rejected = self.client.post(reverse("app:brand_sources:create"), {**data, "source_text": "Different content."})
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, "already used for different source details")
+        self.assertEqual(BrandSource.objects.filter(title="One source request").count(), 1)
+
+    def test_stale_source_editor_cannot_overwrite_a_newer_draft_save(self):
+        self.client.force_login(self.manager)
+        edit_url = reverse("app:brand_sources:version_edit", args=[self.source.pk, 1])
+        stale_form = self.client.get(edit_url).context["form"]
+        baseline = {
+            "base_version_number": stale_form["base_version_number"].value(),
+            "base_content_hash": stale_form["base_content_hash"].value(),
+            "effective_date": "",
+        }
+        first = self.client.post(edit_url, {**baseline, "source_text": self.version.source_text + " First edit."})
+        self.assertEqual(first.status_code, 302)
+        stale = self.client.post(edit_url, {**baseline, "source_text": self.version.source_text + " Stale edit."})
+        self.assertEqual(stale.status_code, 200)
+        self.assertContains(stale, "changed after the form was opened")
+        self.version.refresh_from_db()
+        self.assertTrue(self.version.source_text.endswith("First edit."))
+
     def test_source_library_detail_and_editor_pages_render_with_named_routes(self):
         self._create_rule()
         approve_source_version(source_id=self.source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
@@ -117,8 +158,12 @@ class BrandSourceWorkflowTests(TestCase):
         for route in routes:
             with self.subTest(route=route):
                 self.assertIn(self.client.get(route).status_code, {200, 302})
-        self.client.post(reverse("app:brand_sources:version_create", args=[self.source.pk]), {
+        create_url = reverse("app:brand_sources:version_create", args=[self.source.pk])
+        create_form = self.client.get(create_url).context["form"]
+        self.client.post(create_url, {
             "source_text": self.version.source_text + " Current guidance.", "effective_date": "",
+            "base_version_number": create_form["base_version_number"].value(),
+            "base_content_hash": create_form["base_content_hash"].value(),
         })
         draft_routes = [
             reverse("app:brand_sources:version_edit", args=[self.source.pk, 2]),
@@ -131,7 +176,11 @@ class BrandSourceWorkflowTests(TestCase):
 
     def test_invalid_source_text_is_rejected(self):
         self.client.force_login(self.manager)
+        empty_request = self.client.post(reverse("app:brand_sources:create"), {})
+        self.assertEqual(empty_request.status_code, 200)
+        self.assertContains(empty_request, "This field is required.")
         response = self.client.post(reverse("app:brand_sources:create"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Empty", "source_type": "POLICY", "description": "", "source_text": "   ", "effective_date": "",
         })
         self.assertEqual(response.status_code, 200)
@@ -232,8 +281,12 @@ class BrandSourceWorkflowTests(TestCase):
         )
         approve_source_version(source_id=self.source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
         self.client.force_login(self.manager)
-        response = self.client.post(reverse("app:brand_sources:version_create", args=[self.source.pk]), {
+        create_url = reverse("app:brand_sources:version_create", args=[self.source.pk])
+        create_form = self.client.get(create_url).context["form"]
+        response = self.client.post(create_url, {
             "source_text": self.version.source_text + " New guidance.", "effective_date": "",
+            "base_version_number": create_form["base_version_number"].value(),
+            "base_content_hash": create_form["base_content_hash"].value(),
         })
         self.assertEqual(response.status_code, 302, response.content.decode("utf-8"))
         draft = self.source.versions.get(version_number=2)
@@ -500,7 +553,7 @@ class BrandDocumentImportWorkflowTests(TestCase):
     def _upload(self, name="guide.txt", content=None, content_type="application/octet-stream"):
         return SimpleUploadedFile(name, content if content is not None else self.source_text.encode("utf-8"), content_type)
 
-    def _import(self, *, owner=None, upload=None):
+    def _import(self, *, owner=None, upload=None, idempotency_key=None):
         return import_source_document(
             workspace=self.workspace,
             owner=owner or self.manager,
@@ -508,6 +561,7 @@ class BrandDocumentImportWorkflowTests(TestCase):
             source_type=BrandSource.SourceType.GUIDELINES,
             description="Synthetic import fixture.",
             upload=upload or self._upload(),
+            idempotency_key=idempotency_key,
         )
 
     @override_settings(
@@ -566,7 +620,11 @@ class BrandDocumentImportWorkflowTests(TestCase):
             response = self.client.get(reverse("app:brand_sources:import"))
             self.assertEqual(response.status_code, 200)
         self.client.force_login(self.manager)
+        empty_request = self.client.post(reverse("app:brand_sources:import"), {})
+        self.assertEqual(empty_request.status_code, 200)
+        self.assertContains(empty_request, "This field is required.")
         response = self.client.post(reverse("app:brand_sources:import"), {
+            "idempotency_key": str(uuid.uuid4()),
             "title": "Uploaded guide", "source_type": BrandSource.SourceType.GUIDELINES,
             "description": "Imported from a synthetic fixture.", "document": self._upload(),
         })
@@ -576,6 +634,45 @@ class BrandDocumentImportWorkflowTests(TestCase):
         self.assertRedirects(response, target, fetch_redirect_response=False)
         self.assertEqual(version.status, SourceVersion.Status.DRAFT)
         self.assertContains(self.client.get(target), "Document text extracted. Review and confirm the content before publishing.")
+
+    def test_replayed_document_import_request_reuses_source_version_and_provenance(self):
+        token = uuid.uuid4()
+        first = self._import(idempotency_key=token, upload=self._upload("same.txt", self.source_text.encode()))
+        second = self._import(idempotency_key=token, upload=self._upload("same.txt", self.source_text.encode()))
+        self.assertEqual(first[0].pk, second[0].pk)
+        self.assertEqual(first[1].pk, second[1].pk)
+        self.assertEqual(first[2].pk, second[2].pk)
+        self.assertEqual(BrandSource.objects.count(), 1)
+        self.assertEqual(BrandDocumentImport.objects.count(), 1)
+        with self.assertRaisesMessage(ValidationError, "different document or source"):
+            self._import(idempotency_key=token, upload=self._upload("different.txt", b"Different approved source text."))
+        self.assertEqual(BrandSource.objects.count(), 1)
+
+    def test_import_endpoint_replay_is_safe_and_token_conflict_is_a_form_error(self):
+        self.client.force_login(self.manager)
+        token = str(uuid.uuid4())
+        data = {
+            "idempotency_key": token,
+            "title": "Replay through upload form",
+            "source_type": BrandSource.SourceType.GUIDELINES,
+            "description": "Synthetic upload.",
+            "document": self._upload("replay.txt", self.source_text.encode()),
+        }
+        first = self.client.post(reverse("app:brand_sources:import"), data)
+        self.assertEqual(first.status_code, 302)
+        repeated = self.client.post(reverse("app:brand_sources:import"), {
+            **data, "document": self._upload("replay.txt", self.source_text.encode()),
+        })
+        self.assertEqual(repeated.status_code, 302)
+        self.assertEqual(BrandSource.objects.count(), 1)
+        self.assertEqual(BrandDocumentImport.objects.count(), 1)
+        conflict = self.client.post(reverse("app:brand_sources:import"), {
+            **data, "document": self._upload("replay.txt", b"Different source text."),
+        })
+        self.assertEqual(conflict.status_code, 200)
+        self.assertContains(conflict, "already used for a different document or source")
+        self.assertEqual(BrandSource.objects.count(), 1)
+        self.assertEqual(BrandDocumentImport.objects.count(), 1)
 
     def test_creator_and_reviewer_cannot_import(self):
         for user in (self.creator, self.reviewer):
@@ -629,15 +726,30 @@ class BrandDocumentImportWorkflowTests(TestCase):
             approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
         self.client.force_login(self.manager)
         edit_url = reverse("app:brand_sources:version_edit", args=[source.pk, 1])
-        response = self.client.post(edit_url, {"source_text": self.source_text + " Corrected.", "effective_date": ""})
+        edit_form = self.client.get(edit_url).context["form"]
+        response = self.client.post(edit_url, {
+            "source_text": self.source_text + " Corrected.", "effective_date": "",
+            "base_version_number": edit_form["base_version_number"].value(),
+            "base_content_hash": edit_form["base_content_hash"].value(),
+        })
         self.assertRedirects(response, edit_url)
         record.refresh_from_db()
         self.assertFalse(record.text_is_confirmed)
+        stale_hash = version.content_hash
         version.refresh_from_db()
         confirm_url = reverse("app:brand_sources:confirm_import", args=[source.pk, 1])
-        self.client.post(confirm_url, {"confirm_text": "on"})
+        stale = self.client.post(confirm_url, {"confirm_text": "on", "expected_content_hash": stale_hash})
+        self.assertEqual(stale.status_code, 302)
+        record.refresh_from_db()
+        self.assertFalse(record.text_is_confirmed)
+        current_hash = version.content_hash
+        self.client.post(confirm_url, {"confirm_text": "on", "expected_content_hash": current_hash})
         record.refresh_from_db()
         self.assertTrue(record.text_is_confirmed)
+        confirmed_at = record.confirmed_at
+        self.client.post(confirm_url, {"confirm_text": "on", "expected_content_hash": current_hash})
+        record.refresh_from_db()
+        self.assertEqual(record.confirmed_at, confirmed_at)
         approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
         version.refresh_from_db()
         self.assertEqual(version.status, SourceVersion.Status.APPROVED)
@@ -650,13 +762,16 @@ class BrandDocumentImportWorkflowTests(TestCase):
         other_workspace = Workspace.objects.create(name="Other", slug="other-import-workspace")
         other_manager = self._member("other_import_manager", WorkspaceMembership.Role.BRAND_MANAGER, other_workspace)
         self.client.force_login(other_manager)
-        self.assertEqual(self.client.post(confirm_url, {"confirm_text": "on"}).status_code, 404)
+        self.assertEqual(self.client.post(confirm_url, {"confirm_text": "on", "expected_content_hash": version.content_hash}).status_code, 404)
         self.assertEqual(BrandSource.objects.count(), 1)
 
     def test_confirmation_and_approval_publish_the_same_version_to_policy_snapshot(self):
         source, version, record = self._import()
         policy_before = policy_snapshot(self.workspace)
-        confirm_imported_text(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
+        confirm_imported_text(
+            source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager,
+            expected_content_hash=version.content_hash,
+        )
         approved = approve_source_version(source_id=source.pk, version_number=1, workspace=self.workspace, actor=self.manager)
         self.workspace.refresh_from_db()
         record.refresh_from_db()

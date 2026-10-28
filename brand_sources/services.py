@@ -44,18 +44,47 @@ def policy_snapshot(workspace):
 
 
 @transaction.atomic
-def create_source(*, workspace, owner, title, source_type, description, source_text, effective_date=None, is_demo=False, slug=None):
-    source_slug = slug or _unique_source_slug(workspace, title)
+def create_source(*, workspace, owner, title, source_type, description, source_text, effective_date=None, is_demo=False, slug=None, idempotency_key=None):
+    token = None
+    if idempotency_key is not None:
+        try:
+            token = uuid.UUID(str(idempotency_key))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValidationError("Refresh the source form and try again.") from exc
+    locked_workspace = Workspace.objects.select_for_update().get(pk=workspace.pk, is_active=True)
+    title = title.strip()
+    existing = None
+    if token and owner is not None:
+        existing = BrandSource.objects.filter(
+            workspace=locked_workspace, owner=owner, create_idempotency_key=token,
+        ).first()
+    if existing:
+        version = existing.versions.filter(version_number=1).first()
+        if (
+            version is not None
+            and existing.title == title
+            and existing.source_type == source_type
+            and existing.description == description
+            and existing.is_demo == is_demo
+            and version.source_text == source_text
+            and version.effective_date == effective_date
+            and (slug is None or existing.slug == slug)
+        ):
+            return existing, version
+        raise ValidationError("This source request was already used for different source details.")
+
+    source_slug = slug or _unique_source_slug(locked_workspace, title)
     if slug and BrandSource.objects.filter(workspace=workspace, slug=slug).exists():
         raise ValidationError({"title": "A source with this identity already exists in the workspace."})
     source = BrandSource.objects.create(
-        workspace=workspace,
+        workspace=locked_workspace,
         owner=owner,
         title=title,
         slug=source_slug,
         source_type=source_type,
         description=description,
         is_demo=is_demo,
+        create_idempotency_key=token,
     )
     version = SourceVersion(
         source=source,
@@ -69,7 +98,7 @@ def create_source(*, workspace, owner, title, source_type, description, source_t
     return source, version
 
 
-def import_source_document(*, workspace, owner, title, source_type, description, upload):
+def import_source_document(*, workspace, owner, title, source_type, description, upload, idempotency_key=None):
     """Extract and persist a private document linked to a real Phase 2A draft."""
     try:
         extracted = extract_uploaded_document(upload)
@@ -86,6 +115,10 @@ def import_source_document(*, workspace, owner, title, source_type, description,
         ) from exc
     safe_filename = _safe_original_filename(upload.name, extracted.document_type)
     file_hash = hashlib.sha256(extracted.raw_bytes).hexdigest()
+    try:
+        token = uuid.UUID(str(idempotency_key)) if idempotency_key is not None else None
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValidationError("Refresh the document import form and try again.") from exc
     document_import = BrandDocumentImport(
         workspace=workspace,
         original_filename=safe_filename,
@@ -98,13 +131,39 @@ def import_source_document(*, workspace, owner, title, source_type, description,
     stored_name = ""
     try:
         with transaction.atomic():
+            locked_workspace = Workspace.objects.select_for_update().get(pk=workspace.pk, is_active=True)
+            if token:
+                existing_source = BrandSource.objects.filter(
+                    workspace=locked_workspace, owner=owner, create_idempotency_key=token,
+                ).first()
+                if existing_source:
+                    existing_version = existing_source.versions.filter(version_number=1).first()
+                    record = BrandDocumentImport.objects.filter(
+                        workspace_id=locked_workspace.pk, source_version=existing_version,
+                    ).first() if existing_version else None
+                    if (
+                        record is not None
+                        and existing_source.title == title.strip()
+                        and existing_source.source_type == source_type
+                        and existing_source.description == description
+                        and existing_version.source_text == extracted.text
+                        and existing_version.effective_date is None
+                        and record.original_filename == safe_filename
+                        and record.document_type == extracted.document_type
+                        and record.file_sha256 == file_hash
+                        and record.extracted_character_count == len(extracted.text)
+                        and record.pdf_page_count == extracted.page_count
+                    ):
+                        return existing_source, existing_version, record
+                    raise ValidationError("This import request was already used for a different document or source.")
             source, version = create_source(
-                workspace=workspace,
+                workspace=locked_workspace,
                 owner=owner,
                 title=title,
                 source_type=source_type,
                 description=description,
                 source_text=extracted.text,
+                idempotency_key=token,
             )
             document_import.source_version = version
             # upload_to derives only a generated UUID and validated extension;
@@ -118,6 +177,8 @@ def import_source_document(*, workspace, owner, title, source_type, description,
             stored_name = document_import.original_document.name
             document_import.full_clean()
             document_import.save()
+    except ValidationError:
+        raise
     except Exception as exc:
         if stored_name:
             try:
@@ -136,7 +197,7 @@ def import_source_document(*, workspace, owner, title, source_type, description,
 
 
 @transaction.atomic
-def confirm_imported_text(*, source_id, version_number, workspace, actor):
+def confirm_imported_text(*, source_id, version_number, workspace, actor, expected_content_hash):
     document_import = (
         BrandDocumentImport.objects.select_for_update()
         .select_related("source_version", "source_version__source")
@@ -151,6 +212,10 @@ def confirm_imported_text(*, source_id, version_number, workspace, actor):
     )
     if document_import is None:
         raise SourceVersion.DoesNotExist
+    if document_import.source_version.content_hash != expected_content_hash:
+        raise ValidationError("The source text changed after this page was opened. Review the current saved text before confirming it.")
+    if document_import.confirmed_text_sha256 == document_import.source_version.content_hash:
+        return document_import
     document_import.confirmed_text_sha256 = document_import.source_version.content_hash
     document_import.confirmed_by = actor
     document_import.confirmed_at = timezone.now()
@@ -160,7 +225,7 @@ def confirm_imported_text(*, source_id, version_number, workspace, actor):
 
 
 @transaction.atomic
-def create_draft_version(*, source, workspace):
+def create_draft_version(*, source, workspace, expected_previous_version=None, expected_previous_hash=None):
     """Create one next draft, copying the latest version's complete policy set."""
     locked_source = BrandSource.objects.select_for_update().get(pk=source.pk, workspace=workspace)
     existing = locked_source.versions.filter(status=SourceVersion.Status.DRAFT).first()
@@ -170,6 +235,11 @@ def create_draft_version(*, source, workspace):
     previous = locked_source.versions.order_by("-version_number").first()
     if previous is None:
         raise ValidationError("This source has no version to copy. Create a source draft first.")
+    if expected_previous_version is not None and (
+        previous.version_number != expected_previous_version
+        or previous.content_hash != expected_previous_hash
+    ):
+        raise ValidationError("The source changed after this form was opened. Reload the latest version before creating a draft.")
 
     version = SourceVersion(
         source=locked_source,

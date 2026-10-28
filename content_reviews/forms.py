@@ -10,6 +10,7 @@ MAX_CONTENT_CHARACTERS = 20_000
 
 
 class ContentSubmissionForm(forms.Form):
+    idempotency_key = forms.UUIDField(widget=forms.HiddenInput)
     title = forms.CharField(
         max_length=160,
         label="Submission title",
@@ -40,6 +41,11 @@ class ContentSubmissionForm(forms.Form):
         }),
         help_text=f"Paste plain-text content. Up to {MAX_CONTENT_CHARACTERS:,} characters. This phase does not accept campaign file uploads.",
     )
+
+    def __init__(self, *args, **kwargs):
+        initial = kwargs.setdefault("initial", {})
+        initial.setdefault("idempotency_key", uuid.uuid4())
+        super().__init__(*args, **kwargs)
 
     def clean_title(self):
         title = self.cleaned_data["title"].strip()
