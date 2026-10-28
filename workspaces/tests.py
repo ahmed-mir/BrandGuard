@@ -326,6 +326,7 @@ class WorkspaceExperienceTests(TestCase):
                 ]
                 self.assertEqual(parser.unavailable_text.split(), expected_unavailable)
                 expected_links = {reverse("app:home"), reverse("app:profile")}
+                expected_links.add(reverse("app:analytics"))
                 expected_links.add(reverse("app:brand_sources:list"))
                 expected_links.add(reverse("app:content_reviews:list"))
                 if role in {WorkspaceMembership.Role.REVIEWER, WorkspaceMembership.Role.ADMIN}:
@@ -346,6 +347,7 @@ class WorkspaceExperienceTests(TestCase):
             {
                 reverse("app:home"),
                 reverse("app:profile"),
+                reverse("app:analytics"),
                 reverse("app:brand_sources:list"),
                 reverse("app:content_reviews:list"),
             },

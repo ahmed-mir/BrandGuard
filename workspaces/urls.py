@@ -7,6 +7,7 @@ app_name = "app"
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("analytics/", views.analytics, name="analytics"),
     path("members/", views.members, name="members"),
     path("settings/profile/", profile_settings, name="profile"),
     path(

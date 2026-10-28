@@ -37,6 +37,10 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/></svg>
         <span>Content reviews</span>
       </a>
+      <a href="{% url 'app:analytics' %}"{% if active_navigation == 'analytics' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16.5h14M5.5 14V9M10 14V4M14.5 14v-6"/></svg>
+        <span>Policy analytics</span>
+      </a>
       {% if membership.role == "REVIEWER" %}
         <a href="{% url 'app:approvals:inbox' %}"{% if active_navigation == 'approvals' %} aria-current="page"{% endif %}>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 10 4 4L17 4"/></svg><span>Approval inbox</span>

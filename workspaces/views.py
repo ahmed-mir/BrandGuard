@@ -5,6 +5,7 @@ from approvals.models import ApprovalRequest
 from approvals.services import submission_workflow_status
 from brand_sources.models import SourceVersion
 from content_reviews.models import ContentSubmission, ReviewRun
+from .analytics import workspace_analytics
 from .models import WorkspaceMembership
 from .page_context import app_page_context
 from .permissions import workspace_member_required, workspace_role_required
@@ -76,6 +77,24 @@ def home(request):
         },
     )
     return render(request, "core/app_home.html", context)
+
+
+@require_GET
+@workspace_member_required
+def analytics(request):
+    membership = request.workspace_membership
+    context = app_page_context(
+        request,
+        page_title="Policy analytics",
+        active_navigation="analytics",
+        extra={"analytics": workspace_analytics(
+            workspace=request.workspace,
+            membership=membership,
+            user=request.user,
+            period=request.GET.get("period", "30d"),
+        )},
+    )
+    return render(request, "workspaces/analytics.html", context)
 
 
 @require_GET
