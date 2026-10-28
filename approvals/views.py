@@ -1,5 +1,7 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Case, CharField, Count, Q, Value, When
+from django.db.models.functions import Concat
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -28,26 +30,77 @@ def _context(request, title, extra=None):
 @workspace_role_required(*REVIEWER_ROLES)
 def approval_inbox(request):
     snapshot = policy_snapshot(request.workspace)
-    pending = (
-        ApprovalRequest.objects.filter(workspace=request.workspace, status=ApprovalRequest.Status.IN_REVIEW)
+    status_options = [
+        ("pending", "Pending", ApprovalRequest.Status.IN_REVIEW),
+        ("changes_requested", "Changes requested", ApprovalRequest.Status.CHANGES_REQUESTED),
+        ("approved", "Approved", ApprovalRequest.Status.APPROVED),
+        ("all", "All", None),
+    ]
+    status_filter = request.GET.get("status", "pending")
+    valid_statuses = {key for key, _label, _value in status_options}
+    if status_filter not in valid_statuses:
+        status_filter = "pending"
+    query = str(request.GET.get("q", ""))[:120].strip()
+
+    requests = (
+        ApprovalRequest.objects.filter(workspace=request.workspace)
         .select_related("submission", "submission__creator", "content_version", "review_run")
-        .prefetch_related("review_run__findings__rule")
-        .order_by("requested_at", "id")
-    )
-    rows = []
-    for approval in pending:
-        findings = approval.review_run.findings.all()
-        rows.append({
-            "approval": approval,
-            "high_count": sum(1 for item in findings if item.rule.severity == "HIGH"),
-            "finding_count": len(findings),
-            "stale": (
-                approval.submission.current_version_id != approval.content_version_id
-                or approval.policy_snapshot != snapshot
-                or approval.content_hash != approval.content_version.content_hash
+        .annotate(
+            finding_count=Count("review_run__findings", distinct=True),
+            high_count=Count(
+                "review_run__findings",
+                filter=Q(review_run__findings__rule__severity="HIGH"),
+                distinct=True,
             ),
-        })
-    return render(request, "approvals/inbox.html", _context(request, "Approval inbox", {"rows": rows}))
+        )
+    )
+    selected_status = next(value for key, _label, value in status_options if key == status_filter)
+    if selected_status:
+        requests = requests.filter(status=selected_status)
+    if query:
+        requests = requests.annotate(
+            _creator_display_name=Concat(
+                "submission__creator__first_name",
+                Value(" "),
+                "submission__creator__last_name",
+                output_field=CharField(),
+            )
+        ).filter(
+            Q(submission__title__icontains=query)
+            | Q(submission__creator__username__icontains=query)
+            | Q(_creator_display_name__icontains=query)
+        )
+
+    if status_filter == "all":
+        requests = requests.order_by(
+            Case(
+                When(status=ApprovalRequest.Status.IN_REVIEW, then=Value(0)),
+                When(status=ApprovalRequest.Status.CHANGES_REQUESTED, then=Value(1)),
+                default=Value(2),
+            ),
+            "-requested_at", "-id",
+        )
+    else:
+        requests = requests.order_by("-requested_at", "-id")
+
+    rows = [{
+        "approval": approval,
+        "high_count": approval.high_count,
+        "finding_count": approval.finding_count,
+        "stale": (
+            approval.submission.current_version_id != approval.content_version_id
+            or approval.policy_snapshot != snapshot
+            or approval.content_hash != approval.content_version.content_hash
+        ),
+    } for approval in requests]
+    return render(request, "approvals/inbox.html", _context(request, "Approval inbox", {
+        "rows": rows,
+        "status_filter": status_filter,
+        "status_options": [(key, label) for key, label, _value in status_options],
+        "query": query,
+        "has_filters": bool(query) or status_filter != "pending",
+        "result_count": len(rows),
+    }))
 
 
 @require_http_methods(["GET", "POST"])
