@@ -2,75 +2,95 @@
 
 BrandGuard is a source-backed review and approval system for marketing content. The product includes Django session authentication, role-aware workspaces, source authoring and human-verified TXT/DOCX/text-PDF ingestion, deterministic evidence-backed reviews, immutable content revisions, human approval of exact reviewed versions, and TXT/PDF exports guarded by current approval. Optional real AI advisory analysis is disabled by default and separate from deterministic findings and human decisions. Demo AI mode uses repository-controlled simulated output and makes no external provider request. Brand source approval publishes policy only; it does not approve marketing content.
 
-## Requirements
+## Requirements and local setup
 
-- Python 3.14.6 is pinned for Render in `.python-version`; the existing local development environment is also Python 3.14.6. Check the selected interpreter with `python --version` rather than assuming the local and hosted runtimes match.
-- Django 6.1.x (constrained in `requirements.txt`).
-- SQLite by default for local development. Production/Render requires PostgreSQL through `DATABASE_URL` and the included psycopg 3 driver; missing or SQLite production URLs fail startup.
-- `python-docx` and `pypdf` for bounded DOCX/PDF text extraction.
-- `reportlab` for in-memory, paginated PDF review reports.
-- `openai` Python SDK for optional real-provider advisory analysis through the Responses API. Real AI is disabled by default; Demo AI mode does not require the SDK key and makes no provider call.
-- Gunicorn for production WSGI, WhiteNoise for static files, and `django-storages[s3]` for optional private S3-compatible brand-document storage.
+- Python **3.14.6** is pinned for Render in `.python-version`; use Python 3.14 locally for the same dependency/runtime family. Verify with `python --version`.
+- Django 6.1.x and all runtime packages are listed in `requirements.txt`.
+- Local development defaults to SQLite. Render/production requires PostgreSQL through `DATABASE_URL` and the psycopg 3 driver; production fails closed if the database URL is missing or SQLite.
+- TXT, DOCX and text-PDF source extraction uses `python-docx` and `pypdf`. PDF exports use ReportLab. Production uses Gunicorn and WhiteNoise; optional private S3-compatible document storage uses `django-storages[s3]`.
 
-## Windows PowerShell setup
+### Windows PowerShell quick start
 
-Run from the repository directory. Create the local virtual environment once:
+From a new clone:
 
 ```powershell
-py -3 -m venv .venv
+git clone https://github.com/ahmed-mir/BrandGuard.git
+cd BrandGuard
+py -3.14 -m venv .venv
 & .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-
-Set a stable development secret in your per-user Windows environment. The first block creates it once without printing or storing it in the repository; keep the value private.
-
-```powershell
-if (-not [Environment]::GetEnvironmentVariable('DJANGO_SECRET_KEY', 'User')) {
-    $localSecret = & .\.venv\Scripts\python.exe -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-    [Environment]::SetEnvironmentVariable('DJANGO_SECRET_KEY', $localSecret, 'User')
-    Remove-Variable localSecret
-}
-$env:DJANGO_SECRET_KEY = [Environment]::GetEnvironmentVariable('DJANGO_SECRET_KEY', 'User')
+$env:DJANGO_ENV = 'development'
+$env:DJANGO_SECRET_KEY = & .\.venv\Scripts\python.exe -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 $env:DJANGO_DEBUG = 'true'
 $env:DJANGO_ALLOWED_HOSTS = 'localhost,127.0.0.1'
-```
-
-The secret persists across terminal and server restarts. Open a new PowerShell session and repeat the environment assignments when needed. `.env.example` lists supported settings, but is not automatically loaded. Never commit a secret or put it in a README command.
-
-## Database and local demo accounts
-
-Apply migrations, then create the four synthetic demo accounts:
-
-```powershell
+$env:BRANDGUARD_AI_ENABLED = 'false'
+$env:BRANDGUARD_AI_DEMO_MODE = 'true'
 python manage.py migrate
 python manage.py seed_demo
-```
-
-The seed command also installs the synthetic LumaDesk policy sources used to exercise the source library. Imported documents are not required for setup. To create six seed-owned submissions and run the real deterministic engine against them, run `python manage.py seed_review_scenarios` after `seed_demo`. It is restricted to DEBUG + SQLite and skips existing scenario records.
-
-`seed_demo` only runs with `DJANGO_DEBUG=true` and SQLite. On the first run it generates a separate high-entropy password for each account and prints each password once. Capture them securely; the command does not store or show generated passwords again. For repeatable passwords, set `BRANDGUARD_DEMO_PASSWORD` or a role-specific variable such as `BRANDGUARD_DEMO_REVIEWER_PASSWORD` to a strong value before the first seed. The command never prints environment-supplied passwords and never resets existing passwords. Do not use demo seeding in production.
-
-| Username | Email | Workspace role |
-| --- | --- | --- |
-| `lumadesk_creator` | `creator@lumadesk.test` | Creator |
-| `lumadesk_brand_manager` | `brand.manager@lumadesk.test` | Brand manager |
-| `lumadesk_reviewer` | `reviewer@lumadesk.test` | Reviewer |
-| `lumadesk_admin` | `admin@lumadesk.test` | Workspace admin |
-
-Sign in at `/accounts/login/` with a username or case-insensitive email and the password captured/configured during seeding. Use the **Sign out** form in the workspace to log out; it submits POST with CSRF protection. There is no public registration.
-
-If this database already contains seeded accounts and you no longer have their one-time generated passwords, set a local password interactively with Django's management command, for example `python manage.py changepassword lumadesk_admin`. Repeat for another demo username as needed. `seed_demo` deliberately leaves existing passwords unchanged and cannot recover them.
-
-For a deployed judge workspace, use the separately guarded `bootstrap_demo` procedure in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Provide each judge a role-appropriate account through a private channel; never publish passwords in the repository, application UI, or submission materials. Demonstrate the creator and reviewer as separate sign-ins.
-
-Start the server:
-
-```powershell
 python manage.py runserver
 ```
 
-Open <http://127.0.0.1:8000/>. To test the full local path, visit `/accounts/login/`, sign in with one of the seeded accounts, open `/app/`, then use **Sign out** and confirm `/app/` sends you back to login.
+Open <http://127.0.0.1:8000/> and sign in at `/accounts/login/`. `seed_demo` creates the synthetic `LumaDesk` workspace, five approved synthetic policy sources, and Creator, Brand manager, Reviewer and Workspace admin accounts. On a fresh local database it generates a distinct random password per account and prints each once; capture them securely at that time. Alternatively, before seeding, provide `BRANDGUARD_DEMO_PASSWORD` or a role-specific `BRANDGUARD_DEMO_CREATOR_PASSWORD`, `BRANDGUARD_DEMO_BRAND_MANAGER_PASSWORD`, `BRANDGUARD_DEMO_REVIEWER_PASSWORD` or `BRANDGUARD_DEMO_ADMIN_PASSWORD`. Supplied passwords are never printed, and existing account passwords are never reset. Do not publish or reuse local demo credentials.
+
+To create six synthetic submissions and run the actual deterministic engine against them, open another terminal with the same Django environment and run `python manage.py seed_review_scenarios`. This command requires DEBUG + SQLite, preserves existing scenario records and is optional; `seed_demo` alone is enough to begin using the app. The production-only `bootstrap_demo` command has separate safeguards described in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#explicit-production-demo-bootstrap); it is never run by a normal build.
+
+### macOS/Linux quick start
+
+From a new clone, use Python 3.14, activate the virtual environment, then set the same process environment and run the same management commands:
+
+```sh
+git clone https://github.com/ahmed-mir/BrandGuard.git
+cd BrandGuard
+python3.14 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+export DJANGO_ENV=development
+export DJANGO_SECRET_KEY="$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')"
+export DJANGO_DEBUG=true
+export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+export BRANDGUARD_AI_ENABLED=false
+export BRANDGUARD_AI_DEMO_MODE=true
+python manage.py migrate
+python manage.py seed_demo
+python manage.py runserver
+```
+
+Django does **not** load `.env` files in this project. `.env.example` is a reference template, not an automatic loader; the commands above set the required values in the current shell. `DJANGO_SECRET_KEY` is required even in development. Never put a real key/password in Git. Leave `DATABASE_URL` unset for the clone-local `db.sqlite3` SQLite database. If an existing local database has seeded accounts but you lost a generated password, use `python manage.py changepassword <username>` deliberately; `seed_demo` cannot recover/reset an existing password. There is no public registration.
+
+For the whole product journey, use separate Creator and Reviewer sign-ins; the Creator creates/reviews/revises/submits and the Reviewer inspects and decides. The landing page's **Try the BrandGuard demo** button still requires login. No demo password is embedded in the UI or README.
+
+## Supported environment variables
+
+`.env.example` contains safe names/defaults only. Django reads the process environment; Render supplies its own variables. “Optional” means settings have a default or the feature is not needed for that local workflow.
+
+| Variable | Scope | Purpose/default |
+| --- | --- | --- |
+| `DJANGO_ENV` | Local/production | `development` by default; set `production` for deployment safeguards. Render's automatic `RENDER=true` also activates production safeguards. |
+| `DJANGO_SECRET_KEY` | Required everywhere | Required to start Django. Use a random secret; production requires at least 50 characters. |
+| `DJANGO_DEBUG` | Local/production | Defaults to `false`; set `true` for local development. Production rejects/enforces debug off. |
+| `DJANGO_ALLOWED_HOSTS` | Optional locally; required production | Comma-separated hostnames, no scheme or wildcard. Local default is `localhost,127.0.0.1`. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Optional locally; required production | Exact HTTPS origins, comma-separated. Empty by default locally. |
+| `DATABASE_URL` | Optional locally; required production | Omit locally to use the clone's `db.sqlite3`; may be a local SQLite or PostgreSQL URL. Production requires PostgreSQL. |
+| `DB_CONNECT_TIMEOUT`, `DB_CONN_MAX_AGE` | Optional | PostgreSQL timeout/reuse defaults are 5 seconds/60 seconds. |
+| `DB_SSLMODE` | Optional PostgreSQL | TLS mode override. Production requires `require`, `verify-ca` or `verify-full`; default is `require`. |
+| `DJANGO_HSTS_SECONDS`, `DJANGO_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_HSTS_PRELOAD` | Production-only tuning | Defaults are `0`, `false`, `false`; do not enable HSTS until HTTPS/domain configuration is verified. |
+| `PORT` | Host supplied | Render supplies the web-server port. The Gunicorn command has a local fallback of `10000`; Django settings do not consume this variable. |
+| `BRANDGUARD_AI_ENABLED` | AI-only | Real OpenAI path; defaults to `false`. A key alone does not enable calls. |
+| `BRANDGUARD_AI_DEMO_MODE` | Demo AI | Defaults to `false`. Set true with real AI false for simulated repository-controlled advisories; no API key/provider call. Both flags true fails closed. |
+| `OPENAI_API_KEY` | Real AI only | Server-side credential required only when real AI is enabled; never needed for Demo AI or ordinary app startup. |
+| `BRANDGUARD_AI_MODEL` | Real AI only | Defaults to `gpt-5.4-mini`; configurable model identifier. |
+| `BRANDGUARD_AI_TIMEOUT_SECONDS`, `BRANDGUARD_AI_MAX_OUTPUT_TOKENS`, `BRANDGUARD_AI_MAX_FINDINGS`, `BRANDGUARD_AI_MAX_CONTEXT_CHARS` | Real AI controls | Defaults: 15 seconds, 1,400 tokens, 12 findings and 10,000 context characters; settings enforce upper/lower bounds. |
+| `BRAND_DOCUMENT_MAX_UPLOAD_BYTES`, `BRAND_DOCUMENT_MAX_PDF_PAGES`, `BRAND_DOCUMENT_MAX_EXTRACTED_CHARS` | Document import | Defaults: 5 MiB, 10 pages, 80,000 extracted characters; settings cap maximums. |
+| `PRIVATE_DOCUMENT_ROOT` | Local storage | Local private filesystem root; defaults to ignored `private_uploads/`. Not served as public media. |
+| `PRIVATE_DOCUMENT_STORAGE_BACKEND`, `PRIVATE_DOCUMENT_STORAGE_OPTIONS` | Optional local/custom storage | Local backend and JSON options; normally leave defaults. `PRIVATE_DOCUMENT_STORAGE_OPTIONS` is read only outside production. |
+| `PRIVATE_DOCUMENT_BUCKET`, `PRIVATE_DOCUMENT_REGION`, `PRIVATE_DOCUMENT_ENDPOINT_URL` | Production storage | Optional private S3-compatible object storage settings. Without bucket/region, production imports are disabled rather than saved on Render's ephemeral disk. Endpoint, if used, must be HTTPS. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Storage credentials | Read by boto3/django-storages when configured; supply only via a secret manager/workload identity, never `.env.example` or Git. |
+| `BRANDGUARD_DEMO_PASSWORD`, `BRANDGUARD_DEMO_<ROLE>_PASSWORD` | Local demo seed | Optional local seed passwords (`CREATOR`, `BRAND_MANAGER`, `REVIEWER`, `ADMIN`). Unset passwords are generated and printed once by `seed_demo`; existing passwords are not changed. |
+| `BRANDGUARD_ALLOW_PRODUCTION_DEMO_BOOTSTRAP` | Explicit one-off production bootstrap | Must equal `YES` in addition to the command's confirmation flag. Do not leave enabled during normal service operation. See deployment docs. |
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Render settings and private storage safeguards, and [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for provider privacy, consent and failure behavior.
 
 ## Routes
 
@@ -133,16 +153,16 @@ Render uses its PostgreSQL internal URL when the web service and database share 
 
 ```powershell
 python manage.py check
-python manage.py makemigrations --check
-python manage.py migrate
+python manage.py makemigrations --check --dry-run
 python manage.py test
+python -m pip check
 ```
 
-The test suite covers Phase 0 landing/health routes, Phase 1A authentication and membership security, Phase 1B profile/password/navigation/member safeguards, Phase 2A source/rule/fact CRUD and policy snapshots, Phase 2B synthetic TXT/DOCX/PDF extraction and confirmation, Phase 3A deterministic reviews, Phase 3B immutable revisions and human decisions, Phase 4A current-approval-protected TXT/PDF exports, and Phase 5A/5D AI isolation, consent, evidence validation, provider failure handling and simulated Demo AI. `python manage.py collectstatic --noinput` verifies/builds deployment static assets; generated `staticfiles/` output is ignored.
+The current full suite contains **301 automated tests**. It uses Django's SQLite test database and covers authentication/workspace isolation, policy/source management and import, deterministic reviews and evidence, immutable revisions, comments/resolution history, approval decisions and stale approval, guarded TXT/PDF exports, AI isolation and simulated Demo AI, analytics, readiness, inbox search, and submission activity. It does not prove PostgreSQL row-lock/concurrency behavior. Run migrations against your local database with `python manage.py migrate`; this is part of setup, not the migration-drift check above. `python manage.py collectstatic --noinput` verifies/builds deployment static assets; generated `staticfiles/` output is ignored.
 
 ## Render deployment preparation
 
-Phase 4B-1 prepared a pinned Render Python runtime, Gunicorn/WhiteNoise configuration, fail-closed production PostgreSQL settings, secure proxy/cookie/host configuration, a `build.sh` that installs, collects static files and migrates, and a public `/health/` check. The operator reports the judge demo release at `9dc94c0b5f8ed0b4db4a70aee807a015462d4f1a` was manually deployed and tested. This local repository session did not inspect the Render dashboard. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for deployment settings, storage limitations and checks.
+The project includes a pinned Render Python runtime, Gunicorn/WhiteNoise configuration, fail-closed production PostgreSQL settings, secure proxy/cookie/host configuration, a `build.sh` that installs dependencies, collects static files and applies migrations, and a public `/health/` route. Deployment state and the currently serving commit must be checked in the Render dashboard; a Git commit or this README does not prove deployment. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for setup, storage limitations and checks.
 
 Brand-source document imports are intentionally disabled in production until a persistent private S3-compatible bucket, region and credentials are configured. The rest of the app—including existing source text, deterministic reviews, approvals and guarded TXT/PDF exports—does not depend on that bucket. Local imports continue using ignored `private_uploads/` storage.
 
@@ -159,11 +179,15 @@ Brand-source document imports are intentionally disabled in production until a p
 - `approvals/` — one immutable-version-bound approval request and immutable human decision records, including exact review/policy snapshot, reviewer identity, changes comments and high-severity override rationale. `current_valid_approval()` is the reusable current-approval gate used by every export request.
 - `content_reviews/exports.py` — workspace/role/owner-scoped export eligibility, evidence integrity checks, UTF-8 TXT content and paginated ReportLab report generation from saved records.
 - `ai_analysis/` — separate advisory run/finding records, a validated OpenAI Responses adapter for explicitly consented real analysis, and a repository-controlled Demo AI adapter that uses actual approved synthetic source excerpts and never contacts an external provider.
-- `docs/` — phase plan and design system.
+- `docs/` — [deployment](docs/DEPLOYMENT.md), [review engine](docs/REVIEW_ENGINE.md), [approval workflow](docs/APPROVAL_WORKFLOW.md), [exports](docs/EXPORTS.md), [AI boundaries](docs/AI_INTEGRATION.md), [Round 3 technical summary](docs/ROUND3_TECHNICAL_SUMMARY.md) and [roadmap](docs/ROUND3_ROADMAP.md).
 
 The overview displays the signed-in identity, active workspace and membership role, real workspace and membership status/dates, role-specific guidance, and workspace-scoped counts with recent submissions and deterministic policy reviews. Creator counts and records are limited to that creator's own submissions; reviewer and management roles see current-workspace records according to their permissions. `/app/analytics/` is a separate read-only dashboard. Its counts, proportions, rule frequencies, resolution states, approval outcomes, decision turnaround, and review trend are calculated from persisted records; it does not show a compliance score, benchmarks, or fabricated data. Finding proportions use only findings with a stored classification; category proportions use deterministic finding records in the selected scope; the median turnaround includes decisions with a recorded non-negative request-to-decision duration. Historical approval decisions are not presented as currently valid approvals. Workspace admins can inspect actual membership records scoped to their current workspace; inactive membership records are shown as inactive. Other roles cannot access the member route, even by direct URL. The profile form only saves first and last name. Django's built-in `PasswordChangeForm` validates password changes, and the current session is updated with `update_session_auth_hash`. Profile and password changes use POST with CSRF protection. Role decisions are resolved from database membership, never client fields. A user with no active membership, an inactive workspace, or ambiguous multiple active memberships is denied workspace access.
 
 Phases 3A and 3B implement text submissions, bounded deterministic checks, immutable creator revisions, human request-changes/approval decisions and current-approval validation. Phase 4A adds only private approved-content TXT and evidence-backed PDF report downloads. The product still does not include campaign-document uploads, independent or universal fact verification, semantic interpretation/synonyms, OCR or image/poster review, automatic suggestion application, public registration, tamper-proof audit logging or new roles. Brand-source publishing remains distinct from marketing-content approval. Imported original brand documents have no download UI/API; scanned-image text is not extracted. Effective dates are treated as start dates but expiry is not modeled. Account settings cannot change email, username or role. Workspace administration remains limited to the existing read-only member list plus source-policy management for admins. The existing Django user model is retained.
+
+### Round 3 product work
+
+Round 3 added collaborative version/finding comments and append-only per-finding resolution history; persisted-record policy analytics; duplicate-action and stale-form safeguards; role-aware Review Readiness guidance; reviewer inbox status filters/search; and a read-only submission Activity timeline derived from existing records. Finding resolution is collaboration state, not approval. Analytics use saved records and do not present fabricated compliance scores. See [docs/ROUND3_TECHNICAL_SUMMARY.md](docs/ROUND3_TECHNICAL_SUMMARY.md) for the architecture and [docs/ROUND3_ROADMAP.md](docs/ROUND3_ROADMAP.md) for completed, pending-validation and future work.
 
 ### Phase 2A permissions and policy snapshots
 
