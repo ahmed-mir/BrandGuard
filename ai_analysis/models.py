@@ -49,6 +49,9 @@ class AIAnalysisRun(models.Model):
     model_identifier = models.CharField(max_length=64)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.RUNNING)
     error_category = models.CharField(max_length=32, choices=ErrorCategory.choices, blank=True, default="")
+    # Only bounded, allowlisted provider/parser metadata is stored here. Never save
+    # prompts, output text, headers, exception messages, or provider payloads.
+    error_metadata = models.JSONField(default=dict, blank=True)
     external_processing_consented = models.BooleanField(default=False)
     consented_at = models.DateTimeField(null=True, blank=True)
     input_tokens = models.PositiveIntegerField(null=True, blank=True)

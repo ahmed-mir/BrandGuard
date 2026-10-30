@@ -314,9 +314,14 @@ SESSION_ENGINE = "django.contrib.sessions.backends.db"
 BRANDGUARD_AI_ENABLED = _env_bool("BRANDGUARD_AI_ENABLED", False)
 BRANDGUARD_AI_DEMO_MODE = _env_bool("BRANDGUARD_AI_DEMO_MODE", False)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+BRANDGUARD_AI_PROVIDER = os.environ.get("BRANDGUARD_AI_PROVIDER", "openai").strip().lower()
 BRANDGUARD_AI_MODEL = os.environ.get("BRANDGUARD_AI_MODEL", "gpt-5.4-mini").strip()
+BRANDGUARD_GROQ_MODEL = os.environ.get("BRANDGUARD_GROQ_MODEL", "openai/gpt-oss-20b").strip()
 if not BRANDGUARD_AI_MODEL or len(BRANDGUARD_AI_MODEL) > 64:
     raise ImproperlyConfigured("BRANDGUARD_AI_MODEL must be a non-empty model identifier of at most 64 characters.")
+if not BRANDGUARD_GROQ_MODEL or len(BRANDGUARD_GROQ_MODEL) > 64:
+    raise ImproperlyConfigured("BRANDGUARD_GROQ_MODEL must be a non-empty model identifier of at most 64 characters.")
 BRANDGUARD_AI_TIMEOUT_SECONDS = _bounded_int("BRANDGUARD_AI_TIMEOUT_SECONDS", "15", 3, 20)
 BRANDGUARD_AI_MAX_OUTPUT_TOKENS = _bounded_int("BRANDGUARD_AI_MAX_OUTPUT_TOKENS", "1400", 100, 2000)
 BRANDGUARD_AI_MAX_FINDINGS = _bounded_int("BRANDGUARD_AI_MAX_FINDINGS", "12", 1, 12)

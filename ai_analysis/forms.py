@@ -6,7 +6,7 @@ from django import forms
 class AIAnalysisConsentForm(forms.Form):
     idempotency_key = forms.UUIDField(widget=forms.HiddenInput)
 
-    def __init__(self, *args, demo_mode=False, **kwargs):
+    def __init__(self, *args, demo_mode=False, provider_label="OpenAI", **kwargs):
         kwargs.setdefault("initial", {"idempotency_key": uuid.uuid4()})
         super().__init__(*args, **kwargs)
         if demo_mode:
@@ -18,6 +18,6 @@ class AIAnalysisConsentForm(forms.Form):
         else:
             self.fields["consent_external_processing"] = forms.BooleanField(
                 required=True,
-                label="I authorize sending this content and the selected approved source excerpts to the external AI provider for this analysis.",
+                label=f"I authorize sending this content and the selected approved source excerpts to {provider_label} for this analysis.",
                 error_messages={"required": "Confirm the external-processing disclosure before running AI analysis."},
             )

@@ -148,6 +148,7 @@ def version_detail(request, submission_id, version_number):
     from ai_analysis.forms import AIAnalysisConsentForm
     from ai_analysis.models import AIAnalysisRun
     from ai_analysis.services import ai_analysis_available, ai_analysis_mode, ai_unavailable_reason, current_analysis_is_stale
+    from django.conf import settings
     readiness = build_review_readiness(
         workspace=request.workspace,
         membership=request.workspace_membership,
@@ -236,7 +237,11 @@ def version_detail(request, submission_id, version_number):
             "ai_analysis_demo_mode": ai_analysis_mode() == "demo",
             "ai_unavailable_reason": ai_unavailable_reason(),
             "can_request_ai_analysis": creator_view and submission.creator_id == request.user.pk,
-            "ai_analysis_consent_form": AIAnalysisConsentForm(demo_mode=ai_analysis_mode() == "demo"),
+            "ai_analysis_consent_form": AIAnalysisConsentForm(
+                demo_mode=ai_analysis_mode() == "demo",
+                provider_label=("Groq" if settings.BRANDGUARD_AI_PROVIDER == "groq" else "OpenAI"),
+            ),
+            "ai_provider_label": "Groq" if settings.BRANDGUARD_AI_PROVIDER == "groq" else "OpenAI",
             "can_comment": can_comment,
             "version_comments": version_comments,
             "version_comment_form": ReviewCommentForm(prefix="version-comment"),

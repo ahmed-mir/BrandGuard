@@ -4,17 +4,18 @@ AI analysis is an optional, user-initiated aid. It is stored separately from det
 
 ## Provider and model
 
-The adapter uses the official OpenAI Python SDK and the Responses API with a strict JSON Schema response format. The default model is `gpt-5.4-mini`; this identifier is configurable and is currently listed by OpenAI as supporting the Responses endpoint and Structured Outputs. The SDK API is `OpenAI(...).responses.create(...)`. The implementation sends `store=False`, caps output tokens, sets a short timeout, and disables SDK retries. See the [Responses API text guide](https://developers.openai.com/api/docs/guides/text?api-mode=responses), [Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs), [model page](https://developers.openai.com/api/docs/models/gpt-5.4-mini), and [official Python SDK](https://github.com/openai/openai-python).
+The adapter uses the official OpenAI Python SDK with provider-specific transports. OpenAI is the default provider and uses the Responses API with a strict JSON Schema response format; its model defaults to `gpt-5.4-mini`. Groq uses the OpenAI-compatible Chat Completions API at `https://api.groq.com/openai/v1`; its model defaults to `openai/gpt-oss-20b`. Groq receives the same strict BrandGuard schema using Chat Completions `response_format={"type":"json_schema","json_schema":{"name":"brandguard_advisory","strict":true,"schema":...}}`, `reasoning_effort="low"`, bounded `max_completion_tokens`, and `extra_body={"include_reasoning":false}`. The Groq-only reasoning inclusion flag is carried through SDK `extra_body`, not a direct SDK keyword. Both responses enter the same BrandGuard domain and evidence validators. SDK retries are disabled and configured timeout/output bounds apply to both. OpenAI sends `store=False`; this OpenAI-specific field is not sent to Groq. Provider retention terms and account controls differ and must be reviewed before external processing. See the [OpenAI Responses API text guide](https://developers.openai.com/api/docs/guides/text?api-mode=responses), [OpenAI Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs), [Groq Structured Outputs guide](https://console.groq.com/docs/structured-outputs), [Groq reasoning guide](https://console.groq.com/docs/reasoning), [Groq API reference](https://console.groq.com/docs/api-reference), and [official Python SDK](https://github.com/openai/openai-python).
 
-The model identifier is a provider configuration value, not an entitlement. The OpenAI API account must have API billing/usage enabled and access to the chosen model; a ChatGPT subscription does not itself provide API credits. Usage is charged by the provider according to its current pricing and account limits.
+The model identifier is a provider configuration value, not an entitlement. The selected provider account must have API usage enabled, credits/quota and access to the chosen model. A ChatGPT subscription does not itself provide OpenAI API credits. Usage and account limits are provider-specific; verify them in the relevant provider console before enabling real requests.
 
 ## Configuration
 
 AI is off by default. A configured key alone does not turn it on. The process needs all of:
 
 - `BRANDGUARD_AI_ENABLED=true`
-- `OPENAI_API_KEY` in the server-side secret store
-- `BRANDGUARD_AI_MODEL` (defaults to `gpt-5.4-mini`)
+- `BRANDGUARD_AI_PROVIDER=openai` (default) or `groq`
+- For OpenAI: `OPENAI_API_KEY`; optionally `BRANDGUARD_AI_MODEL` (defaults to `gpt-5.4-mini`)
+- For Groq: `GROQ_API_KEY`; optionally `BRANDGUARD_GROQ_MODEL` (defaults to `openai/gpt-oss-20b`)
 
 ### Zero-cost Demo AI mode
 
@@ -51,6 +52,22 @@ $env:BRANDGUARD_AI_MODEL = 'gpt-5.4-mini'
 python manage.py runserver
 ```
 
+For a deliberately authorized Groq test, set the selector/model and opt-in controls in the local process environment, then make the key available through a trusted secret manager or the parent shell without printing it:
+
+```powershell
+$env:BRANDGUARD_AI_ENABLED = 'true'
+$env:BRANDGUARD_AI_DEMO_MODE = 'false'
+$env:BRANDGUARD_AI_PROVIDER = 'groq'
+$env:BRANDGUARD_GROQ_MODEL = 'openai/gpt-oss-20b'
+$env:BRANDGUARD_AI_TIMEOUT_SECONDS = '15'
+$env:BRANDGUARD_AI_MAX_OUTPUT_TOKENS = '1000'
+$env:BRANDGUARD_AI_MAX_FINDINGS = '3'
+$env:BRANDGUARD_AI_MAX_CONTEXT_CHARS = '4000'
+python manage.py runserver 127.0.0.1:8000
+```
+
+Set `GROQ_API_KEY` only in that local process environment; never type its value into source-controlled files or a logged command. The experimental Groq Responses transport failed in two separately authorized attempts, including an HTTP 400. The current Chat Completions path has since completed one separately authorized synthetic BrandGuard analysis locally. Its strict response, domain validation, evidence grounding, provider/model persistence, and isolation from deterministic review and approvals/exports all passed. This does not establish OpenAI live access or deployment of this unpushed code.
+
 If both flags are false, or real mode is enabled without a key, the page shows an honest unavailable state and deterministic review continues normally.
 
 ## User consent and transmitted information
@@ -66,7 +83,7 @@ For one request, the provider receives:
 
 It does not receive raw uploaded files, draft/superseded/future-effective/cross-workspace sources, database rows, credentials, account identity, tools or a web-search capability. The user must have authority to send that content and source material to the provider. The synthetic LumaDesk pack is recommended for demos.
 
-The provider request uses Responses `store=False`. OpenAI's current data-control documentation says Responses API application-state retention is 30 days by default or with `store=true`, while abuse-monitoring logs may retain customer content for up to 30 days unless an eligible organization has approved Modified Abuse Monitoring or Zero Data Retention. Therefore `store=False` is a privacy measure, not a promise of zero provider retention. Operators must review their own provider account controls and terms before sending confidential data. See [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data).
+The OpenAI request uses Responses `store=False`. This is not a promise of zero provider retention; operators must review that provider's account controls and terms before sending confidential data. Groq receives no `store` field because that OpenAI-specific option is not part of the request shape used here. Review Groq's applicable retention, data-use and account controls separately. Never assume provider data handling is identical across providers.
 
 ## Snapshot and bounded context
 
@@ -90,7 +107,7 @@ Deterministic `ReviewRun` checks are objective executions of persisted typed rul
 
 The stored run state is `RUNNING`, then `COMPLETE` or `FAILED`. No provider request results in a success-shaped response. Failures use non-sensitive categories for disabled/missing configuration, no approved context, application rate limit, timeout, authentication, quota, provider rate limit/unavailability, refusal, invalid response/evidence, stale references or persistence failure. The UI preserves deterministic results and says AI had no effect on them. Error logs contain record IDs and exception class only; no content, source excerpt, API key, response body or request headers.
 
-At most three analysis attempts per requesting user/content version in a rolling hour are permitted. A completed analysis with the same content hash, exact policy snapshot, provider and model is reused instead of billed again. An equivalent recent in-flight request is also reused, including when separate tabs have different request tokens; its request is bounded by the configured provider timeout. Old in-flight records beyond that timeout window do not block a retry after an abnormal worker exit. New content or policy identities allow a new separately recorded analysis. No automatic reruns occur. Provider account spend limits should also be configured by the operator.
+At most three analysis attempts per requesting user/content version in a rolling hour are permitted. A completed analysis with the same content hash, exact policy snapshot, provider and model is reused instead of billed again. An equivalent recent in-flight request is also reused, including when separate tabs have different request tokens; its request is bounded by the configured provider timeout. OpenAI and Groq runs, and different model identifiers, are not conflated. Old in-flight records beyond that timeout window do not block a retry after an abnormal worker exit. New content or policy identities allow a new separately recorded analysis. No automatic reruns occur. Provider account spend limits should also be configured by the operator.
 
 ## Data model and migration
 
@@ -104,6 +121,6 @@ Apply local migrations with `python manage.py migrate`. To disable real provider
 - No internet fact checking, broad factual validation, calibrated confidence, semantic rule execution, image/OCR, poster, audio or video analysis is implemented.
 - Lexical retrieval can miss relevant guidance; the analysis is limited to the excerpts saved in its context manifest.
 - AI analysis has no effect on the approval workflow. Human approval remains the only approval authority.
-- A single controlled real Responses API request was attempted during validation but was rate limited; it saved a failed run and no AI findings. No retry was made. Automated real-provider tests remain mocked. Provider availability, account retention settings and billing are operator-side concerns. Demo AI is simulated repository-controlled output and must never be represented as a live model response.
+- A controlled OpenAI Responses API request was rate limited; no retry was made, and OpenAI live success has not been established. Two earlier Groq Responses API attempts failed without saving findings. A later single Groq Chat Completions request completed through BrandGuard with strict schema, domain, and evidence checks passing; two findings were saved, and deterministic review and approval/export state remained unchanged. Automated provider tests remain mocked. Provider availability, model entitlement, account retention settings and billing are operator-side concerns. Demo AI is simulated repository-controlled output and must never be represented as a live model response.
 - The zero-cost Demo AI path is not a substitute for provider validation. It is a small deterministic example generator, clearly identified as simulated, with all citations rechecked against the saved policy snapshot and exact source text.
 - SQLite tests do not establish PostgreSQL multi-writer concurrency. The brief's current optional feature is synchronous and short; it uses the PostgreSQL-compatible workspace row-lock snapshot pattern, but a live PostgreSQL AI-request test remains to be performed before enabling it broadly.

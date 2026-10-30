@@ -19,7 +19,9 @@ from .provider import ProviderFailure, request_analysis
 from .schemas import FINDING_SCHEMA, SYSTEM_INSTRUCTIONS
 from .services import (
     AIAnalysisRejected,
+    _parse_provider_finding,
     _retrieve_context,
+    _validate_provider_schema_contract,
     current_analysis_is_stale,
     run_ai_analysis,
     validate_provider_findings,
@@ -87,6 +89,110 @@ class AIAnalysisServiceTests(ReviewFixtureMixin, TestCase):
         self.assertEqual(version.review_runs.count(), 0)
         request.assert_called_once()
 
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+        BRANDGUARD_AI_MAX_FINDINGS=3,
+    )
+    def test_groq_chat_response_uses_shared_evidence_validation_and_persists_validated_findings(self):
+        import json
+        from types import SimpleNamespace
+
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        finding = self.finding_payload()
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=json.dumps({"findings": [finding]}), refusal=None),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=35, completion_tokens=24),
+        )
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.return_value = fake_response
+            run = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+        self.assertEqual(run.status, AIAnalysisRun.Status.COMPLETE, run.error_metadata)
+        self.assertEqual(run.provider, "groq")
+        self.assertEqual(run.model_identifier, "openai/gpt-oss-20b")
+        self.assertEqual(run.input_tokens, 35)
+        self.assertEqual(run.output_tokens, 24)
+        saved = run.findings.get()
+        self.assertEqual(saved.source_version_id, self.policy_version.pk)
+        self.assertEqual(saved.evidence_excerpt, finding["evidence_excerpt"])
+        self.assertIn(saved.evidence_excerpt, self.policy_version.source_text)
+        openai_client.return_value.chat.completions.create.assert_called_once()
+        openai_client.return_value.responses.create.assert_not_called()
+
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+    )
+    def test_groq_schema_and_evidence_rejections_persist_no_findings(self):
+        import json
+        from types import SimpleNamespace
+
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        responses = [
+            {"wrong_root": []},
+            {"findings": [self.finding_payload(source_version_id=uuid.uuid4())]},
+        ]
+        for index, data in enumerate(responses):
+            fake_response = SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=json.dumps(data), refusal=None), finish_reason="stop",
+                )],
+                usage=None,
+            )
+            with self.subTest(index=index), patch("openai.OpenAI") as openai_client:
+                openai_client.return_value.chat.completions.create.return_value = fake_response
+                run = run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                    actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+                )
+            self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+            self.assertFalse(run.findings.exists())
+            if index == 0:
+                self.assertEqual(run.error_metadata["parser_stage"], "provider_schema_contract")
+            else:
+                self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.INVALID_EVIDENCE)
+                self.assertEqual(run.error_metadata["parser_stage"], "evidence_validation")
+
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+    )
+    def test_groq_http_error_diagnostics_are_safely_persisted(self):
+        submission, version = self.create_submission_for(text="Synthetic private draft text.")
+        diagnostics = {
+            "provider": "groq",
+            "model": "openai/gpt-oss-20b",
+            "parser_stage": "provider_http_error",
+            "provider_status_code": 400,
+            "provider_error_type": "invalid_request_error",
+            "provider_message": "Invalid structured schema; request text redacted.",
+        }
+        with patch(
+            "ai_analysis.services.request_analysis",
+            side_effect=ProviderFailure("INVALID_RESPONSE", diagnostics),
+        ):
+            run = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_metadata["provider_status_code"], 400)
+        self.assertEqual(run.error_metadata["provider_error_type"], "invalid_request_error")
+        self.assertEqual(run.error_metadata["parser_stage"], "provider_http_error")
+        self.assertEqual(run.error_metadata["provider_message"], diagnostics["provider_message"])
+        self.assertNotIn("Synthetic private draft text.", str(run.error_metadata))
+        self.assertFalse(run.findings.exists())
+
     def test_unverified_claim_without_citation_is_allowed_but_not_evidence_backed(self):
         item = self.finding_payload(
             category="CLAIM", classification="NOT_VERIFIED", source_version_id="", evidence_excerpt="",
@@ -100,6 +206,102 @@ class AIAnalysisServiceTests(ReviewFixtureMixin, TestCase):
         )
         self.assertIsNone(result[0]["source_version"])
         self.assertEqual(result[0]["evidence_excerpt"], "")
+
+    def test_provider_enums_match_model_choices_and_parse(self):
+        finding_schema = FINDING_SCHEMA["properties"]["findings"]["items"]["properties"]
+        categories = set(AIAnalysisFinding.Category.values)
+        classifications = set(AIAnalysisFinding.Classification.values)
+        self.assertEqual(set(finding_schema["category"]["enum"]), categories)
+        self.assertEqual(set(finding_schema["classification"]["enum"]), classifications)
+        for category in categories:
+            for classification in classifications:
+                with self.subTest(category=category, classification=classification):
+                    parsed = _parse_provider_finding({
+                        **self.finding_payload(category=category, classification=classification),
+                    }, 0)
+                    self.assertEqual(parsed["category"], category)
+                    self.assertEqual(parsed["classification"], classification)
+
+    def test_schema_valid_subjective_supported_combination_is_a_domain_semantic_rejection(self):
+        submission, version = self.create_submission_for()
+        data = {"findings": [self.finding_payload(category="TONE", classification="SUPPORTED")]}
+        _validate_provider_schema_contract(data)
+        with self.assertRaises(AIAnalysisRejected) as rejected:
+            validate_provider_findings(
+                data, content_text=version.content_text, workspace_id=self.workspace.pk,
+                snapshot=policy_snapshot(self.workspace),
+                context_manifest=_retrieve_context([self.policy_version], version.content_text, submission),
+            )
+        self.assertEqual(rejected.exception.parser_stage, "domain_semantic")
+        self.assertEqual(rejected.exception.validation_errors, [
+            {"path": "findings.0.classification", "code": "unsupported_combination"},
+        ])
+
+    def test_schema_valid_overlong_text_is_rejected_at_domain_semantic_stage(self):
+        submission, version = self.create_submission_for()
+        item = self.finding_payload()
+        item["explanation"] = "x" * 1601
+        data = {"findings": [item]}
+        _validate_provider_schema_contract(data)
+        with self.assertRaises(AIAnalysisRejected) as rejected:
+            validate_provider_findings(
+                data, content_text=version.content_text, workspace_id=self.workspace.pk,
+                snapshot=policy_snapshot(self.workspace),
+                context_manifest=_retrieve_context([self.policy_version], version.content_text, submission),
+            )
+        self.assertEqual(rejected.exception.parser_stage, "domain_semantic")
+        self.assertEqual(rejected.exception.validation_errors[0]["code"], "too_long")
+
+    def test_malformed_source_identifier_is_rejected_as_untrusted_evidence_without_echoing_value(self):
+        submission, version = self.create_submission_for()
+        bad_id = "synthetic-private-identifier"
+        with self.assertRaises(AIAnalysisRejected) as rejected:
+            validate_provider_findings(
+                {"findings": [self.finding_payload(source_version_id=bad_id)]},
+                content_text=version.content_text, workspace_id=self.workspace.pk,
+                snapshot=policy_snapshot(self.workspace),
+                context_manifest=_retrieve_context([self.policy_version], version.content_text, submission),
+            )
+        self.assertEqual(rejected.exception.parser_stage, "evidence_validation")
+        self.assertEqual(rejected.exception.validation_errors[0]["code"], "invalid_citation")
+        self.assertNotIn(bad_id, str(rejected.exception.validation_errors))
+
+    def test_invalid_content_location_is_domain_semantic_and_valid_location_is_preserved(self):
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        snapshot = policy_snapshot(self.workspace)
+        context = _retrieve_context([self.policy_version], version.content_text, submission)
+        valid = validate_provider_findings(
+            {"findings": [self.finding_payload(matched_text="too aggressive")]},
+            content_text=version.content_text, workspace_id=self.workspace.pk,
+            snapshot=snapshot, context_manifest=context,
+        )
+        self.assertEqual(valid[0]["text_start"], version.content_text.index("too aggressive"))
+        with self.assertRaises(AIAnalysisRejected) as rejected:
+            validate_provider_findings(
+                {"findings": [self.finding_payload(matched_text="not in the draft")]},
+                content_text=version.content_text, workspace_id=self.workspace.pk,
+                snapshot=snapshot, context_manifest=context,
+            )
+        self.assertEqual(rejected.exception.parser_stage, "domain_semantic")
+
+    def test_invalid_domain_diagnostic_is_bounded_and_never_contains_field_value(self):
+        submission, version = self.create_submission_for()
+        private_text = "private synthetic finding payload"
+        payload = self.finding_payload(category="TONE", classification="SUPPORTED")
+        payload["explanation"] = private_text
+        with patch("ai_analysis.services.request_analysis", return_value={"data": {"findings": [payload]}}):
+            run = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_metadata["parser_stage"], "domain_semantic")
+        self.assertEqual(run.error_metadata["validation_error_count"], 1)
+        self.assertEqual(run.error_metadata["validation_errors"], [
+            {"path": "findings.0.classification", "code": "unsupported_combination"},
+        ])
+        self.assertNotIn(private_text, str(run.error_metadata))
+        self.assertFalse(run.findings.exists())
 
     def test_tone_and_messaging_findings_require_exact_supplied_approved_evidence(self):
         for category in ("TONE", "MESSAGING"):
@@ -253,6 +455,112 @@ class AIAnalysisServiceTests(ReviewFixtureMixin, TestCase):
         request.assert_not_called()
         self.assertEqual(AIAnalysisRun.objects.count(), 1)
 
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+    )
+    def test_groq_analysis_persists_honest_provider_and_model_and_uses_shared_validation(self):
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        response = self.valid_provider_result()
+        with patch("ai_analysis.services.request_analysis", return_value=response) as request:
+            run = run_ai_analysis(
+                submission_id=submission.pk,
+                version_number=version.version_number,
+                workspace=self.workspace,
+                actor=self.creator,
+                idempotency_key=uuid.uuid4(),
+                consent=True,
+            )
+        self.assertEqual(run.status, AIAnalysisRun.Status.COMPLETE, run.error_category)
+        self.assertEqual(run.provider, "groq")
+        self.assertEqual(run.model_identifier, "openai/gpt-oss-20b")
+        self.assertEqual(run.findings.count(), 1)
+        finding = run.findings.get()
+        self.assertEqual(finding.source_version_id, self.policy_version.pk)
+        self.assertTrue(finding.evidence_excerpt in self.policy_version.source_text)
+        request.assert_called_once()
+        self.assertEqual(request.call_args.kwargs, {"provider": "groq", "model": "openai/gpt-oss-20b"})
+
+    def test_completed_openai_run_does_not_satisfy_groq_request(self):
+        submission, version, openai_run, _ = self.analyze(text="A too aggressive launch message.")
+        self.assertEqual(openai_run.provider, "openai")
+        with override_settings(
+            BRANDGUARD_AI_PROVIDER="groq",
+            GROQ_API_KEY="unit-test-key-not-a-credential",
+            BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+        ):
+            with patch("ai_analysis.services.request_analysis", return_value=self.valid_provider_result()) as request:
+                groq_run = run_ai_analysis(
+                    submission_id=submission.pk,
+                    version_number=version.version_number,
+                    workspace=self.workspace,
+                    actor=self.creator,
+                    idempotency_key=uuid.uuid4(),
+                    consent=True,
+                )
+        self.assertEqual(groq_run.provider, "groq")
+        self.assertNotEqual(groq_run.pk, openai_run.pk)
+        request.assert_called_once()
+
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+    )
+    def test_different_groq_model_does_not_reuse_completed_analysis(self):
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        with patch("ai_analysis.services.request_analysis", return_value=self.valid_provider_result()):
+            first = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number,
+                workspace=self.workspace, actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+        with override_settings(BRANDGUARD_GROQ_MODEL="another-groq-model"):
+            with patch("ai_analysis.services.request_analysis", return_value=self.valid_provider_result()) as request:
+                second = run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number,
+                    workspace=self.workspace, actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+                )
+        self.assertEqual(first.model_identifier, "openai/gpt-oss-20b")
+        self.assertEqual(second.model_identifier, "another-groq-model")
+        self.assertNotEqual(first.pk, second.pk)
+        request.assert_called_once()
+
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+    )
+    def test_groq_invalid_citation_is_rejected_before_finding_persistence(self):
+        submission, version = self.create_submission_for()
+        invalid = self.finding_payload(source_version_id=uuid.uuid4(), evidence_excerpt="invented evidence")
+        with patch("ai_analysis.services.request_analysis", return_value={"data": {"findings": [invalid]}}):
+            run = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number,
+                workspace=self.workspace, actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+        self.assertEqual(run.provider, "groq")
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.INVALID_EVIDENCE)
+        self.assertFalse(run.findings.exists())
+
+    @override_settings(BRANDGUARD_AI_PROVIDER="not-a-provider", OPENAI_API_KEY="", GROQ_API_KEY="")
+    def test_unsupported_provider_is_rejected_without_record_or_client_call(self):
+        submission, version = self.create_submission_for()
+        with patch("ai_analysis.services.request_analysis") as request:
+            with self.assertRaises(AIAnalysisRejected) as raised:
+                run_ai_analysis(
+                    submission_id=submission.pk,
+                    version_number=version.version_number,
+                    workspace=self.workspace,
+                    actor=self.creator,
+                    idempotency_key=uuid.uuid4(),
+                    consent=True,
+                )
+        self.assertEqual(raised.exception.category, "UNSUPPORTED_PROVIDER")
+        request.assert_not_called()
+        self.assertFalse(AIAnalysisRun.objects.exists())
+
     def test_idempotency_token_cannot_be_reused_for_other_content(self):
         submission, version = self.create_submission_for()
         token = uuid.uuid4()
@@ -293,7 +601,7 @@ class AIAnalysisServiceTests(ReviewFixtureMixin, TestCase):
         )
         nested = {}
 
-        def provider_response(_payload):
+        def provider_response(_payload, **_provider_options):
             # Simulate a second request arriving while the first provider call is
             # in flight, as can happen from another tab with a different form key.
             nested["run"] = run_ai_analysis(
@@ -331,6 +639,29 @@ class AIAnalysisServiceTests(ReviewFixtureMixin, TestCase):
         self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
         self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.TIMEOUT)
         self.assertFalse(run.findings.exists())
+
+    def test_parser_diagnostics_are_persisted_without_provider_text(self):
+        diagnostic = {
+            "provider": "groq", "model": "openai/gpt-oss-20b", "response_status": "incomplete",
+            "output_item_types": ["reasoning"], "output_text_present": False,
+            "output_incomplete": True, "incomplete_reason": "max_output_tokens",
+            "parser_stage": "incomplete_response", "untrusted": "must not be persisted",
+        }
+        with override_settings(
+            BRANDGUARD_AI_PROVIDER="groq", BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+            GROQ_API_KEY="unit-test-key-not-a-credential",
+        ):
+            submission, version = self.create_submission_for()
+            with patch("ai_analysis.services.request_analysis", side_effect=ProviderFailure("INVALID_RESPONSE", diagnostic)):
+                run = run_ai_analysis(
+                    submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                    actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+                )
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.INVALID_RESPONSE)
+        self.assertEqual(run.error_metadata["parser_stage"], "incomplete_response")
+        self.assertNotIn("untrusted", run.error_metadata)
+        self.assertNotIn("must not be persisted", str(run.error_metadata))
 
     def test_invalid_structured_data_and_claim_source_citation_are_not_persisted(self):
         submission, version = self.create_submission_for()
@@ -438,6 +769,20 @@ class AIAnalysisViewAndIntegrationTests(ReviewFixtureMixin, TestCase):
         match = re.search(rf'name="{field}" value="([^"]+)"', html)
         self.assertIsNotNone(match)
         return match.group(1)
+
+    def test_groq_configuration_names_groq_in_external_processing_disclosure(self):
+        from django.urls import reverse
+
+        submission, version = self.create_submission_for()
+        client = Client()
+        client.force_login(self.creator)
+        with override_settings(
+            BRANDGUARD_AI_PROVIDER="groq",
+            GROQ_API_KEY="unit-test-key-not-a-credential",
+        ):
+            response = client.get(reverse("app:content_reviews:version_detail", args=[submission.pk, version.version_number]))
+        self.assertContains(response, "will be sent to Groq for this request")
+        self.assertNotContains(response, "will be sent to OpenAI for this request")
 
     def _consented_post(self, client, url, get_url):
         page = client.get(get_url)
@@ -610,6 +955,55 @@ class AIAnalysisViewAndIntegrationTests(ReviewFixtureMixin, TestCase):
         self.assertFalse(run.findings.exists())
         self.assertEqual(list(review.checks.values_list("pk", flat=True)), original_checks)
 
+    @override_settings(
+        BRANDGUARD_AI_PROVIDER="groq",
+        BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+        GROQ_API_KEY="unit-test-key-not-a-credential",
+    )
+    def test_groq_evidence_rejection_persists_only_safe_parser_diagnostics(self):
+        invalid_finding = {
+            "category": "TONE", "classification": "POTENTIAL_CONFLICT",
+            "explanation": "The wording may be too aggressive compared with the approved guidance.",
+            "matched_text": "too aggressive", "source_version_id": str(uuid.uuid4()),
+            "evidence_excerpt": "invented private provider text", "suggested_wording": "",
+        }
+        submission, version = self.create_submission_for(text="A too aggressive launch message.")
+        result = {
+            "data": {"findings": [invalid_finding]},
+            "input_tokens": 20,
+            "output_tokens": 10,
+            "diagnostics": {
+                "provider": "groq",
+                "model": "openai/gpt-oss-20b",
+                "response_status": "completed",
+                "output_item_types": ["reasoning", "message"],
+                "output_text_present": True,
+                "output_incomplete": False,
+            },
+        }
+        with patch("ai_analysis.services.request_analysis", return_value=result):
+            run = run_ai_analysis(
+                submission_id=submission.pk, version_number=version.version_number, workspace=self.workspace,
+                actor=self.creator, idempotency_key=uuid.uuid4(), consent=True,
+            )
+        self.assertEqual(run.status, AIAnalysisRun.Status.FAILED)
+        self.assertEqual(run.error_category, AIAnalysisRun.ErrorCategory.INVALID_EVIDENCE)
+        self.assertEqual(run.findings.count(), 0)
+        self.assertEqual(run.error_metadata, {
+            "provider": "groq",
+            "model": "openai/gpt-oss-20b",
+            "parser_stage": "evidence_validation",
+            "response_status": "completed",
+            "output_item_types": ["reasoning", "message"],
+            "output_text_present": True,
+            "output_incomplete": False,
+            "validation_errors": [
+                {"path": "findings.0.source_version_id", "code": "invalid_citation"},
+            ],
+            "validation_error_count": 1,
+        })
+        self.assertNotIn("invented private provider text", str(run.error_metadata))
+
     def test_post_is_csrf_protected(self):
         submission, version = self.create_submission_for()
         csrf_client = Client(enforce_csrf_checks=True)
@@ -645,6 +1039,232 @@ class OpenAIResponsesAdapterTests(TestCase):
         self.assertEqual(request["text"]["format"]["schema"], FINDING_SCHEMA)
         self.assertEqual(request["max_output_tokens"], 1400)
         self.assertEqual(json.loads(request["input"]), {"content": "synthetic"})
+        self.assertEqual(request["model"], "gpt-5.4-mini")
+        self.assertNotIn("base_url", client_kwargs)
+
+
+@override_settings(
+    BRANDGUARD_AI_ENABLED=True,
+    BRANDGUARD_AI_DEMO_MODE=False,
+    BRANDGUARD_AI_PROVIDER="groq",
+    BRANDGUARD_GROQ_MODEL="openai/gpt-oss-20b",
+    GROQ_API_KEY="unit-test-key-not-a-credential",
+    BRANDGUARD_AI_TIMEOUT_SECONDS=15,
+    BRANDGUARD_AI_MAX_OUTPUT_TOKENS=1000,
+)
+class GroqChatCompletionsAdapterTests(TestCase):
+    def test_mixed_real_and_demo_flags_never_construct_a_provider_client(self):
+        with override_settings(BRANDGUARD_AI_DEMO_MODE=True):
+            with patch("openai.OpenAI") as openai_client:
+                with self.assertRaises(ProviderFailure) as raised:
+                    request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(raised.exception.category, "MODE_CONFLICT")
+        openai_client.assert_not_called()
+
+    def _chat_response(self, content='{"findings": []}', *, finish_reason="stop", usage=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=content, refusal=None), finish_reason=finish_reason,
+            )],
+            usage=usage,
+        )
+
+    def test_groq_uses_chat_completions_strict_schema_and_supported_token_parameter(self):
+        import json
+        from types import SimpleNamespace
+
+        payload = {"content": "synthetic", "approved_source_passages": [{"excerpt": "approved"}]}
+        fake_response = self._chat_response(usage=SimpleNamespace(prompt_tokens=10, completion_tokens=4))
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.return_value = fake_response
+            result = request_analysis(payload, provider="groq")
+
+        self.assertEqual(result["data"], {"findings": []})
+        self.assertEqual(result["input_tokens"], 10)
+        self.assertEqual(result["output_tokens"], 4)
+        client_kwargs = openai_client.call_args.kwargs
+        self.assertEqual(client_kwargs["base_url"], "https://api.groq.com/openai/v1")
+        self.assertEqual(client_kwargs["timeout"], 15)
+        self.assertEqual(client_kwargs["max_retries"], 0)
+        request = openai_client.return_value.chat.completions.create.call_args.kwargs
+        self.assertEqual(request["model"], "openai/gpt-oss-20b")
+        self.assertEqual(request["messages"][0], {"role": "system", "content": SYSTEM_INSTRUCTIONS})
+        self.assertEqual(request["messages"][1]["role"], "user")
+        self.assertEqual(json.loads(request["messages"][1]["content"]), payload)
+        self.assertEqual(request["response_format"]["type"], "json_schema")
+        self.assertEqual(request["response_format"]["json_schema"]["name"], "brandguard_advisory")
+        self.assertTrue(request["response_format"]["json_schema"]["strict"])
+        self.assertEqual(request["response_format"]["json_schema"]["schema"], FINDING_SCHEMA)
+        self.assertEqual(request["max_completion_tokens"], 1000)
+        self.assertEqual(request["reasoning_effort"], "low")
+        self.assertEqual(request["extra_body"], {"include_reasoning": False})
+        self.assertFalse(request["stream"])
+        self.assertEqual(request["timeout"], 15)
+        for forbidden in (
+            "tools", "text", "instructions", "store", "previous_response_id", "max_output_tokens",
+            "include_reasoning",
+        ):
+            self.assertNotIn(forbidden, request)
+        openai_client.return_value.responses.create.assert_not_called()
+
+    def test_installed_openai_sdk_signature_supports_groq_extension_via_extra_body(self):
+        import inspect
+        from openai.resources.chat.completions import Completions
+
+        signature = inspect.signature(Completions.create)
+        parameters = signature.parameters
+        self.assertIn("reasoning_effort", parameters)
+        self.assertIn("max_completion_tokens", parameters)
+        self.assertIn("extra_body", parameters)
+        self.assertNotIn("include_reasoning", parameters)
+        with self.assertRaisesRegex(TypeError, "unexpected keyword argument 'include_reasoning'"):
+            signature.bind_partial(
+                None, model="openai/gpt-oss-20b", messages=[], reasoning_effort="low",
+                include_reasoning=False, max_completion_tokens=512,
+            )
+
+    def test_groq_parses_chat_message_content_and_empty_content_fails_safely(self):
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.return_value = self._chat_response()
+            result = request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(result["data"], {"findings": []})
+        self.assertTrue(result["diagnostics"]["output_text_present"])
+
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.return_value = self._chat_response(content="")
+            with self.assertRaises(ProviderFailure) as raised:
+                request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(raised.exception.category, "INVALID_RESPONSE")
+        self.assertEqual(raised.exception.diagnostics["parser_stage"], "missing_text")
+
+    def test_invalid_json_and_length_finish_fail_without_raw_content(self):
+        cases = [("not-json private output", "json_decode"), ('{"partial":', "json_decode")]
+        for content, stage in cases:
+            with self.subTest(stage=stage), patch("openai.OpenAI") as openai_client:
+                openai_client.return_value.chat.completions.create.return_value = self._chat_response(content=content)
+                with self.assertRaises(ProviderFailure) as raised:
+                    request_analysis({"content": "synthetic"}, provider="groq")
+            self.assertEqual(raised.exception.category, "INVALID_RESPONSE")
+            self.assertEqual(raised.exception.diagnostics["parser_stage"], stage)
+            self.assertNotIn("private output", str(raised.exception.diagnostics))
+
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.return_value = self._chat_response(
+                content='{"findings":', finish_reason="length",
+            )
+            with self.assertRaises(ProviderFailure) as raised:
+                request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(raised.exception.diagnostics["parser_stage"], "incomplete_response")
+        self.assertEqual(raised.exception.diagnostics["finish_reason"], "length")
+        self.assertEqual(raised.exception.diagnostics["incomplete_reason"], "max_output_tokens")
+
+    def test_finding_schema_recursively_uses_strict_supported_object_and_array_shapes(self):
+        allowed = {"type", "properties", "required", "additionalProperties", "items", "enum"}
+
+        def visit(node, path="$ "):
+            self.assertTrue(set(node).issubset(allowed), f"unsupported schema key at {path}: {set(node) - allowed}")
+            if node.get("type") == "object":
+                self.assertIs(node.get("additionalProperties"), False, path)
+                self.assertEqual(set(node.get("properties", {})), set(node.get("required", [])), path)
+                for name, child in node.get("properties", {}).items():
+                    visit(child, f"{path}.{name}")
+            if node.get("type") == "array":
+                self.assertIn("items", node, path)
+                visit(node["items"], f"{path}[]")
+
+        visit(FINDING_SCHEMA)
+
+    def test_missing_groq_key_fails_before_client_construction(self):
+        with override_settings(GROQ_API_KEY=""):
+            with patch("openai.OpenAI") as openai_client:
+                with self.assertRaises(ProviderFailure) as raised:
+                    request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(raised.exception.category, "MISSING_API_KEY")
+        openai_client.assert_not_called()
+
+    def test_groq_rate_limit_or_quota_uses_safe_metadata(self):
+        import httpx
+        from openai import RateLimitError
+
+        response = httpx.Response(429, request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions"))
+        rate_error = RateLimitError(
+            "sensitive provider body must not be surfaced",
+            response=response,
+            body={"error": {"code": "insufficient_quota"}},
+        )
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.side_effect = rate_error
+            with self.assertRaises(ProviderFailure) as raised:
+                request_analysis({"content": "synthetic"}, provider="groq")
+        self.assertEqual(raised.exception.category, "QUOTA")
+        self.assertEqual(raised.exception.diagnostics["provider_status_code"], 429)
+        self.assertNotIn("sensitive provider body", str(raised.exception))
+
+    def test_groq_4xx_is_mapped_to_safe_invalid_response_category(self):
+        import httpx
+        from openai import APIStatusError
+
+        response = httpx.Response(400, request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions"))
+        private_content = "Synthetic confidential draft should never be saved"
+        provider_error = APIStatusError(
+            "sensitive provider body must not be surfaced", response=response,
+            body={"error": {"message": f"Invalid schema for {private_content}", "type": "invalid_request_error"}},
+        )
+        with patch("openai.OpenAI") as openai_client:
+            openai_client.return_value.chat.completions.create.side_effect = provider_error
+            with self.assertRaises(ProviderFailure) as raised:
+                request_analysis({"content": private_content}, provider="groq")
+        self.assertEqual(raised.exception.category, "INVALID_RESPONSE")
+        self.assertEqual(raised.exception.diagnostics["provider_status_code"], 400)
+        self.assertEqual(raised.exception.diagnostics["parser_stage"], "provider_http_error")
+        self.assertEqual(raised.exception.diagnostics["provider_error_type"], "invalid_request_error")
+        self.assertNotIn(private_content, str(raised.exception.diagnostics))
+        self.assertLessEqual(len(raised.exception.diagnostics["provider_message"]), 400)
+        self.assertNotIn("sensitive provider body", str(raised.exception))
+
+    def test_groq_authentication_timeout_and_network_failures_use_shared_categories(self):
+        import httpx
+        from openai import APIConnectionError, APITimeoutError, AuthenticationError
+
+        request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+        auth_error = AuthenticationError(
+            "credential detail", response=httpx.Response(401, request=request), body={"error": "private"}
+        )
+        failures = [
+            (auth_error, "AUTHENTICATION"),
+            (APITimeoutError(request=request), "TIMEOUT"),
+            (APIConnectionError(request=request), "PROVIDER_UNAVAILABLE"),
+        ]
+        for error, category in failures:
+            with self.subTest(category=category), patch("openai.OpenAI") as openai_client:
+                openai_client.return_value.chat.completions.create.side_effect = error
+                with self.assertRaises(ProviderFailure) as raised:
+                    request_analysis({"content": "synthetic"}, provider="groq")
+            self.assertEqual(raised.exception.category, category)
+            self.assertNotIn("credential detail", str(raised.exception))
+
+    def test_groq_http_statuses_map_to_safe_brandguard_categories(self):
+        import httpx
+        from openai import APIStatusError, AuthenticationError
+
+        cases = [(403, "AUTHENTICATION"), (404, "PROVIDER_UNAVAILABLE"), (413, "INVALID_RESPONSE"),
+                 (422, "INVALID_RESPONSE"), (500, "PROVIDER_UNAVAILABLE")]
+        for status, category in cases:
+            request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+            response = httpx.Response(status, request=request)
+            error_class = AuthenticationError if status == 401 else APIStatusError
+            error = error_class(
+                "provider response detail", response=response,
+                body={"error": {"type": "invalid_request_error", "message": "A bounded safe diagnostic."}},
+            )
+            with self.subTest(status=status), patch("openai.OpenAI") as openai_client:
+                openai_client.return_value.chat.completions.create.side_effect = error
+                with self.assertRaises(ProviderFailure) as raised:
+                    request_analysis({"content": "synthetic"}, provider="groq")
+            self.assertEqual(raised.exception.category, category)
+            self.assertEqual(raised.exception.diagnostics["provider_status_code"], status)
+            self.assertNotIn("provider response detail", str(raised.exception))
 
 
 @override_settings(

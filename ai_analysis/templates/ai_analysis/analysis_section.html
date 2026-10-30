@@ -25,7 +25,7 @@
         {% else %}
           <label class="ai-analysis__consent" for="{{ ai_analysis_consent_form.consent_external_processing.id_for_label }}">
             {{ ai_analysis_consent_form.consent_external_processing }}
-            <span><strong>External processing disclosure</strong><br>Selected content and only relevant approved source excerpts will be sent to OpenAI for this request. Do not proceed with confidential material unless you are authorized to share it. Provider data-retention controls depend on the provider account.</span>
+            <span><strong>External processing disclosure</strong><br>Selected content and only relevant approved source excerpts will be sent to {{ ai_provider_label }} for this request. Do not proceed with confidential material unless you are authorized to share it. Provider data-retention controls depend on the provider account.</span>
           </label>
           <button class="button button--secondary" type="submit">Run AI analysis <span aria-hidden="true">→</span></button>
           {% if can_revise and version.id == submission.current_version_id %}<p class="ai-analysis__demo-note">Use synthetic demonstration content when testing this optional external service.</p>{% endif %}
@@ -45,7 +45,7 @@
             <div><strong>{{ ai_run.get_status_display }}</strong>
               {% if ai_run.provider == "demo" %}
                 <span class="ai-analysis__demo-disclosure ai-analysis__demo-run-disclosure"><strong>Demo AI — simulated response.</strong><br>No external AI provider was contacted. <span class="mono">Demo / simulated · POLICY R{{ ai_run.policy_revision }}</span></span>
-              {% else %}<span class="mono">{{ ai_run.provider }} · {{ ai_run.model_identifier }} · POLICY R{{ ai_run.policy_revision }}</span>{% endif %}
+              {% else %}<span class="mono">AI advisory · {{ ai_run.provider|capfirst }} · {{ ai_run.model_identifier }} · POLICY R{{ ai_run.policy_revision }}</span>{% endif %}
             </div>
             <time datetime="{{ ai_run.created_at|date:'c' }}">{{ ai_run.created_at|date:"M j, Y · H:i T" }}</time>
           </div>

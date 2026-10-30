@@ -11,19 +11,19 @@ This is a status note for the current repository. Local commits and successful l
 - **Reviewer inbox filtering/search:** GET filters and workspace-scoped search/order over approval requests.
 - **Submission Activity:** a read-only timeline reconstructed from existing timestamped submission, version, review, collaboration, resolution, approval and simulated Demo AI records.
 - **Technical documentation:** clone/setup instructions, supported environment variables, architecture and remaining limitations.
+- **Round 2 improvement #1 — real AI advisory evaluation:** OpenAI Responses and Groq Chat Completions remain supported real-provider paths. One separately authorized synthetic Groq request completed through BrandGuard using `openai/gpt-oss-20b`; strict structured output, BrandGuard domain validation, pinned evidence validation, persistence, and deterministic-review/approval/export isolation all passed. OpenAI itself has not been live-validated; an earlier OpenAI request was rate-limited. This completion is local validation, not a production deployment.
 
 These changes are present in local history at the documented checkpoint. Verify the remote branch and deployed service independently before describing them as released.
 
-## Implemented but externally blocked or pending validation
+## Remaining items blocked or pending validation
 
-- **Round 2 improvement #1 — real AI advisory evaluation:** the optional OpenAI Responses integration, structured output, server-side evidence validation, persistence and failure handling are implemented. A prior authorized synthetic request was rate-limited because the provider account had no usable API credits. A successful real response has not been demonstrated. It requires valid provider account access/credits and a separately authorized controlled test; Demo AI is simulation and does not complete this validation.
 - **PostgreSQL concurrency:** services use transaction/locking safeguards, but the automated suite and Phase 7F clean-clone verification used SQLite. A disposable PostgreSQL integration run remains necessary before claiming database-specific concurrency verification.
 - **Full browser/product acceptance:** Django endpoint/template tests and a local server health/login check pass. A complete desktop/mobile browser acceptance run has not been performed in this Phase 7F verification.
 - **Production state:** Render environment, current serving commit, migration logs, persistent object storage and backup/recovery are not verified by repository state. Check the Render dashboard/authorized logs before claiming a release state.
 
 ## Future, only if separately prioritized
 
-- A successful funded real-AI evaluation with explicit consent, synthetic content, recorded cost and provider-retention review.
+- A separate successful OpenAI live evaluation if OpenAI-specific behavior needs validation; Groq already completes the Round 2 real-AI validation commitment.
 - Browser end-to-end coverage for the Creator-to-Reviewer journey and responsive layouts.
 - Disposable PostgreSQL migration and concurrency tests, including competing approval/resolution actions.
 - Persistent private object storage verification for original source-document uploads.

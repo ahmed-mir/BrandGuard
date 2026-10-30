@@ -44,9 +44,9 @@ Version-level and finding-specific `ReviewComment` records preserve author, role
 
 ## AI boundary and Round 2 commitment #1
 
-Real AI is optional, user-initiated, disabled by default and requires explicit external-processing consent. The OpenAI Responses adapter requests strict structured output; BrandGuard validates returned fields, content spans and cited approved source/version/evidence before persisting separate advisory findings. AI runs do not change deterministic review, workflow state, approval decisions or export validity. Provider failures are recorded/displayed separately and do not substitute for deterministic results.
+Real AI is optional, user-initiated, disabled by default and requires explicit external-processing consent. The provider selector supports OpenAI Responses and Groq Chat Completions through the OpenAI Python SDK. Groq uses its OpenAI-compatible endpoint and strict Structured Outputs with the shared BrandGuard schema. Both provider results pass the same local domain and evidence validators before separate advisory findings are persisted. Provider/model identity is recorded and included in equivalent-run reuse. AI runs do not change deterministic review, workflow state, approval decisions or export validity. Provider failures are recorded/displayed separately and do not substitute for deterministic results.
 
-Demo AI uses repository-controlled output, reports provider/model as `demo` / `simulated-brandguard-demo`, passes citations through the source/evidence validation path, and makes no external provider request. It is clearly labelled simulated. A controlled real-provider request previously reached the provider but was rate-limited because the account had no usable credits. Therefore implementation exists, but a successful real-provider evaluation remains externally blocked/unverified; simulated output does not satisfy that validation commitment.
+Demo AI uses repository-controlled output, reports provider/model as `demo` / `simulated-brandguard-demo`, passes citations through the source/evidence validation path, and makes no external provider request. It is clearly labelled simulated. Round 2 improvement #1 is complete locally: one separately authorized Groq Chat Completions request using `openai/gpt-oss-20b` and synthetic LumaDesk content completed through BrandGuard, saved two findings after strict schema/domain/evidence validation, and left deterministic review and approval/export state unchanged. An earlier OpenAI request was rate-limited, so OpenAI live success is not claimed. This local validation does not mean the current unpushed changes are deployed.
 
 ## Hardening and duplicate actions
 
@@ -61,7 +61,7 @@ Production configuration targets Render, PostgreSQL, Gunicorn and WhiteNoise. `b
 ## Known boundaries
 
 - The local SQLite suite is not a PostgreSQL concurrency integration test.
-- Successful real-provider AI output has not been validated; API credits/model access are required for a separately authorized request.
+- OpenAI-specific live success has not been validated; a successful Groq provider run completes the Round 2 real-AI evaluation commitment.
 - Demo AI is simulated and must not be represented as live model output.
 - Scanned-document OCR, video/audio analysis and universal internet fact checking are not implemented.
 - Production original-document imports require persistent private object storage; otherwise the UI disables them and manual source authoring remains available.
