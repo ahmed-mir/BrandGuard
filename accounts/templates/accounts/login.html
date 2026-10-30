@@ -35,14 +35,35 @@
         </div>
         <button class="button button--primary login-submit" type="submit">Sign in <span aria-hidden="true">→</span></button>
       </form>
-      <div class="login-help login-help--demo" aria-label="Judge demo access">
-        <span class="login-help__rule" aria-hidden="true"></span>
-        <div>
-          <p><strong>Synthetic LumaDesk demo</strong></p>
-          <p>Separate Creator, Brand manager and Reviewer accounts are used to demonstrate the workspace. Use the access details supplied with the demo; passwords are never displayed here. Sign out before changing roles.</p>
-          <p>No public registration is available.</p>
+      <section class="login-demo-access" aria-labelledby="login-demo-access-title">
+        <h3 id="login-demo-access-title">Judge Demo Access</h3>
+        <p class="login-demo-access__intro">Use any of the synthetic LumaDesk demo accounts below to explore the complete BrandGuard workflow. Credentials are case-sensitive.</p>
+        <div class="login-demo-access__accounts">
+          <article class="login-demo-access__account">
+            <h4>Creator</h4>
+            <dl>
+              <div><dt>Username</dt><dd><code>lumadesk_creator</code></dd></div>
+              <div><dt>Password</dt><dd><code>B57XXXsw1CwX6n7yWt32ImkA4SIM2fJbXqpnzECTjFs</code></dd></div>
+            </dl>
+          </article>
+          <article class="login-demo-access__account">
+            <h4>Brand Manager</h4>
+            <dl>
+              <div><dt>Username</dt><dd><code>lumadesk_brand_manager</code></dd></div>
+              <div><dt>Password</dt><dd><code>q_6Lvcs-8NxZm2IANoyPjjJo-6wo-KTpqZVjHIqH6rc</code></dd></div>
+            </dl>
+          </article>
+          <article class="login-demo-access__account">
+            <h4>Reviewer</h4>
+            <dl>
+              <div><dt>Username</dt><dd><code>lumadesk_reviewer</code></dd></div>
+              <div><dt>Password</dt><dd><code>bqO0fCq3N35j2UMI2H8Xa7L5gKWkzC8p54FJOWyNvj4</code></dd></div>
+            </dl>
+          </article>
         </div>
-      </div>
+        <p class="login-demo-access__note">Demo accounts contain synthetic hackathon data only.</p>
+        <p class="login-demo-access__note">No public registration is available.</p>
+      </section>
       <a class="login-home" href="{% url 'landing' %}">← Back to BrandGuard</a>
     </div>
   </main>

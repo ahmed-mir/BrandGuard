@@ -183,6 +183,19 @@ h1 em, h2 em { color: var(--teal); font-family: Georgia, "Times New Roman", seri
 .login-help { display: flex; gap: .8rem; margin-top: 1.65rem; color: var(--muted); }
 .login-help__rule { width: 2px; flex: 0 0 2px; height: 100%; min-height: 38px; background: #afcfc3; }
 .login-help p { margin: 0; font-size: .74rem; line-height: 1.65; }.login-help strong { color: var(--ink-soft); font-weight: 650; }
+.login-demo-access { display: grid; gap: .7rem; min-width: 0; margin-top: 1.65rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: #f7f8f5; }
+.login-demo-access h3, .login-demo-access h4, .login-demo-access p { margin: 0; }
+.login-demo-access h3 { color: var(--ink); font-size: .92rem; font-weight: 650; }
+.login-demo-access__intro, .login-demo-access__note { color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.login-demo-access__accounts { display: grid; gap: .55rem; min-width: 0; }
+.login-demo-access__account { min-width: 0; padding: .7rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--paper); }
+.login-demo-access__account h4 { margin-bottom: .5rem; color: var(--ink-soft); font-size: .76rem; font-weight: 650; }
+.login-demo-access__account dl { display: grid; gap: .45rem; margin: 0; }
+.login-demo-access__account dl > div { display: grid; grid-template-columns: 4.2rem minmax(0,1fr); align-items: start; gap: .5rem; min-width: 0; }
+.login-demo-access__account dt { padding-top: .1rem; color: var(--muted); font-size: .64rem; }
+.login-demo-access__account dd { min-width: 0; margin: 0; color: var(--ink); font-size: .7rem; }
+.login-demo-access__account code { overflow-wrap: anywhere; word-break: break-word; font: 500 .67rem/1.5 var(--mono); user-select: text; }
+.login-demo-access__note { padding-top: .55rem; border-top: 1px solid var(--border); }
 .login-home { display: inline-block; margin-top: 2rem; color: var(--teal); font-size: .78rem; font-weight: 600; }.login-home:hover { color: var(--teal-dark); }
 /* Real account and workspace details only; no dashboard metrics are shown in Phase 1A. */
 .app-topbar__actions { display: flex; align-items: center; gap: .75rem; }

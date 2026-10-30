@@ -128,10 +128,19 @@ class AuthenticationFlowTests(TestCase):
     def test_no_public_registration_route_or_role_form_field_exists(self):
         response = self.client.get(reverse("accounts:login"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "No public registration")
-        self.assertContains(response, "Synthetic LumaDesk demo")
-        self.assertContains(response, "Creator, Brand manager and Reviewer")
-        self.assertContains(response, "access details supplied with the demo")
+        self.assertContains(response, "Judge Demo Access")
+        self.assertContains(
+            response,
+            "Use any of the synthetic LumaDesk demo accounts below to explore the complete BrandGuard workflow. Credentials are case-sensitive.",
+        )
+        self.assertContains(response, "lumadesk_creator")
+        self.assertContains(response, "B57XXXsw1CwX6n7yWt32ImkA4SIM2fJbXqpnzECTjFs")
+        self.assertContains(response, "lumadesk_brand_manager")
+        self.assertContains(response, "q_6Lvcs-8NxZm2IANoyPjjJo-6wo-KTpqZVjHIqH6rc")
+        self.assertContains(response, "lumadesk_reviewer")
+        self.assertContains(response, "bqO0fCq3N35j2UMI2H8Xa7L5gKWkzC8p54FJOWyNvj4")
+        self.assertContains(response, "Demo accounts contain synthetic hackathon data only.")
+        self.assertContains(response, "No public registration is available.")
         self.assertNotContains(response, 'name="role"')
         self.assertNotContains(response, 'name="workspace_id"')
         self.assertNotContains(response, "seed_demo")
